@@ -1,0 +1,605 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+
+import '../services/auth_service.dart';
+import '../theme/app_theme.dart';
+import '../widgets/brand_marks.dart';
+import '../widgets/liquid_glass.dart';
+import '../widgets/server_connection_monitor.dart';
+
+final _emailRe = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
+enum _ProviderStatus { loading, ready, error }
+
+/// Port of components/LoginScreen.tsx: email/password form, a guest continue
+/// button, and social login via an in-app browser session that redirects
+/// back to the calendar:// scheme (ASWebAuthenticationSession / Custom Tabs).
+class LoginScreen extends StatefulWidget {
+  final AppTheme theme;
+  final void Function(AuthUser user) onAuthenticated;
+  final VoidCallback onSignup;
+  final VoidCallback onContinueAsGuest;
+
+  const LoginScreen({
+    super.key,
+    required this.theme,
+    required this.onAuthenticated,
+    required this.onSignup,
+    required this.onContinueAsGuest,
+  });
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _passwordFocus = FocusNode();
+  bool _passwordVisible = false;
+  bool _emailFormVisible = false;
+  bool _busy = false;
+  String _message = '';
+  bool _loginAlertVisible = false;
+  bool _checkingConnection = false;
+
+  List<SocialProvider> _enabledProviders = [];
+  _ProviderStatus _providerStatus = _ProviderStatus.loading;
+  SocialProvider? _socialBusy;
+
+  @override
+  void initState() {
+    super.initState();
+    ServerConnectionMonitor.available.addListener(_onConnectionChanged);
+    _loadProviders();
+  }
+
+  void _onConnectionChanged() {
+    if (ServerConnectionMonitor.available.value == true) _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    if (!mounted || _checkingConnection) return;
+    _checkingConnection = true;
+    try {
+      final providers = await AuthService.instance.enabledSocialProviders();
+      if (!mounted) return;
+      setState(() {
+        _enabledProviders = providers;
+        _providerStatus = _ProviderStatus.ready;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _enabledProviders = [];
+        _providerStatus = _ProviderStatus.error;
+      });
+    } finally {
+      _checkingConnection = false;
+    }
+  }
+
+  bool get _isAuthenticating => _busy || _socialBusy != null;
+
+  Future<void> _showLoginFailure(String message) async {
+    if (!mounted || _loginAlertVisible) return;
+    _loginAlertVisible = true;
+    try {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('로그인 실패'),
+          content: Text(message),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _loginAlertVisible = false;
+    }
+  }
+
+  Future<void> _socialLogin(SocialProvider provider) async {
+    if (_socialBusy != null || !_enabledProviders.contains(provider)) return;
+    if (kIsWeb) {
+      setState(() => _message = '간편 로그인은 현재 iOS·Android 앱에서 지원합니다.');
+      return;
+    }
+    setState(() {
+      _socialBusy = provider;
+      _message = '';
+    });
+    try {
+      final result = await FlutterWebAuth2.authenticate(
+        url: AuthService.instance.socialLoginStartURL(provider),
+        callbackUrlScheme: 'calendar',
+      );
+      final callback = Uri.parse(result);
+      final error = callback.queryParameters['error'];
+      if (error != null) throw AuthException(error);
+      final code = callback.queryParameters['code'];
+      if (code == null) throw AuthException('로그인 코드를 받지 못했습니다.');
+      final user = await AuthService.instance.exchangeSocialCode(code);
+      widget.onAuthenticated(user);
+    } catch (error) {
+      if (!mounted) return;
+      if (error is ServerConnectionException) {
+        return;
+      }
+      _showLoginFailure(
+        error is AuthException ? error.message : '간편 로그인에 실패했습니다.',
+      );
+    } finally {
+      if (mounted) setState(() => _socialBusy = null);
+    }
+  }
+
+  @override
+  void dispose() {
+    ServerConnectionMonitor.available.removeListener(_onConnectionChanged);
+    _emailController.dispose();
+    _passwordController.dispose();
+    _passwordFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final email = _emailController.text.trim();
+    if (!_emailRe.hasMatch(email)) {
+      setState(() => _message = '올바른 이메일 주소를 입력해 주세요.');
+      return;
+    }
+    if (_passwordController.text.isEmpty) {
+      setState(() => _message = '비밀번호를 입력해 주세요.');
+      _passwordFocus.requestFocus();
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = '';
+    });
+    try {
+      final user = await AuthService.instance.login(
+        email,
+        _passwordController.text,
+      );
+      widget.onAuthenticated(user);
+    } catch (error) {
+      if (!mounted) return;
+      if (error is ServerConnectionException) {
+        return;
+      }
+      _showLoginFailure(
+        error is AuthException ? error.message : '로그인하지 못했습니다.',
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _emailFormVisible
+        ? _buildEmailLogin(context)
+        : _buildLoginOptions(context);
+  }
+
+  Widget _buildLoginOptions(BuildContext context) {
+    final apple = socialProviders.firstWhere(
+      (provider) => provider.id == SocialProvider.apple,
+    );
+    final google = socialProviders.firstWhere(
+      (provider) => provider.id == SocialProvider.google,
+    );
+    final blue = CupertinoColors.activeBlue.resolveFrom(context);
+    const darkButton = Color(0xFF1C1C1E);
+    return Scaffold(
+      backgroundColor: CupertinoColors.systemGroupedBackground.resolveFrom(
+        context,
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, viewport) => Padding(
+            padding: const EdgeInsets.fromLTRB(32, 24, 32, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Spacer(flex: 5),
+                _buildBrandHero(context),
+                const Spacer(flex: 6),
+                _buildOptionButton(
+                  label: '이메일로 계속 진행',
+                  icon: Icon(CupertinoIcons.envelope, color: blue, size: 27),
+                  color: blue.withValues(alpha: 0.16),
+                  foregroundColor: blue,
+                  onPressed: _isAuthenticating
+                      ? null
+                      : () => setState(() => _emailFormVisible = true),
+                ),
+                const SizedBox(height: 14),
+                _buildOptionButton(
+                  label: 'Apple 계정으로 계속 진행',
+                  icon: const Icon(Icons.apple, color: Colors.white, size: 31),
+                  color: darkButton,
+                  onPressed: _isAuthenticating
+                      ? null
+                      : () => _socialLogin(apple.id),
+                ),
+                const SizedBox(height: 14),
+                _buildOptionButton(
+                  label: 'Google 계정으로 계속 진행',
+                  icon: SizedBox(
+                    width: 29,
+                    height: 29,
+                    child: google.mark(context),
+                  ),
+                  color: Colors.white,
+                  foregroundColor: const Color(0xFF1F1F1F),
+                  onPressed: _isAuthenticating
+                      ? null
+                      : () => _socialLogin(google.id),
+                ),
+                const SizedBox(height: 20),
+                _buildOtherSocialSection(),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _isAuthenticating
+                      ? null
+                      : widget.onContinueAsGuest,
+                  child: const Text(
+                    '로그인 없이 계속하기',
+                    style: TextStyle(color: Color(0xFF98989F), fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBrandHero(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          width: 112,
+          height: 112,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Image.asset('assets/login/app-icon.png', fit: BoxFit.cover),
+          ),
+        ),
+        const SizedBox(height: 26),
+        Text(
+          '일상 캘린더',
+          style: TextStyle(
+            color: CupertinoColors.label.resolveFrom(context),
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -1.1,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          '나의 하루를 차곡차곡',
+          style: TextStyle(
+            color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            fontSize: 17,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOtherSocialSection() {
+    final providers = socialProviders.where(
+      (provider) =>
+          provider.id != SocialProvider.apple &&
+          provider.id != SocialProvider.google,
+    );
+    return Column(
+      children: [
+        const Text(
+          '다른 SNS로 계속',
+          style: TextStyle(color: Color(0xFF77777D), fontSize: 13),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (final provider in providers)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                child: _buildCompactSocialButton(provider),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactSocialButton(SocialProviderSpec provider) {
+    final enabled =
+        _providerStatus == _ProviderStatus.ready &&
+        _enabledProviders.contains(provider.id);
+    return SizedBox(
+      width: 50,
+      height: 50,
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(25),
+        color: provider.background,
+        onPressed: _isAuthenticating || !enabled
+            ? null
+            : () => _socialLogin(provider.id),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.45,
+          child: provider.mark(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionButton({
+    required String label,
+    required Widget icon,
+    required Color color,
+    required VoidCallback? onPressed,
+    Color foregroundColor = Colors.white,
+  }) {
+    return SizedBox(
+      height: 56,
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        borderRadius: BorderRadius.circular(16),
+        color: color,
+        disabledColor: color.withValues(alpha: 0.45),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            icon,
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: TextStyle(
+                color: foregroundColor,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmailLogin(BuildContext context) {
+    final theme = widget.theme;
+    final blue = CupertinoColors.activeBlue.resolveFrom(context);
+    return Scaffold(
+      backgroundColor: CupertinoColors.systemGroupedBackground.resolveFrom(
+        context,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: LayoutBuilder(
+              builder: (context, viewport) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: (viewport.maxHeight - 56).clamp(
+                        0,
+                        double.infinity,
+                      ),
+                    ),
+                    child: IntrinsicHeight(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _isAuthenticating
+                                  ? null
+                                  : () => setState(
+                                      () => _emailFormVisible = false,
+                                    ),
+                              child: const Icon(CupertinoIcons.chevron_back),
+                            ),
+                          ),
+                          Column(
+                            children: [
+                              Text(
+                                '일상 캘린더',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: CupertinoColors.label.resolveFrom(
+                                    context,
+                                  ),
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.8,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                '나의 하루를 차곡차곡',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: CupertinoColors.secondaryLabel
+                                      .resolveFrom(context),
+                                  fontSize: 16,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+                          LiquidGlass(
+                            useNative: false,
+                            radius: 20,
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    '이메일',
+                                    style: TextStyle(
+                                      color: theme.text,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: _emailController,
+                                    keyboardType: TextInputType.emailAddress,
+                                    autocorrect: false,
+                                    textInputAction: TextInputAction.next,
+                                    enabled: !_isAuthenticating,
+                                    onSubmitted: (_) =>
+                                        _passwordFocus.requestFocus(),
+                                    onChanged: (_) =>
+                                        setState(() => _message = ''),
+                                    style: TextStyle(color: theme.text),
+                                    decoration: const InputDecoration(
+                                      hintText: 'example@email.com',
+                                      filled: false,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    '비밀번호',
+                                    style: TextStyle(
+                                      color: theme.text,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  TextField(
+                                    controller: _passwordController,
+                                    focusNode: _passwordFocus,
+                                    obscureText: !_passwordVisible,
+                                    autocorrect: false,
+                                    textInputAction: TextInputAction.go,
+                                    enabled: !_isAuthenticating,
+                                    onSubmitted: (_) => _submit(),
+                                    onChanged: (_) =>
+                                        setState(() => _message = ''),
+                                    style: TextStyle(color: theme.text),
+                                    decoration: InputDecoration(
+                                      hintText: '비밀번호를 입력해 주세요',
+                                      filled: false,
+                                      suffixIcon: TextButton(
+                                        onPressed: () => setState(
+                                          () => _passwordVisible =
+                                              !_passwordVisible,
+                                        ),
+                                        child: Text(
+                                          _passwordVisible ? '숨기기' : '보기',
+                                          style: TextStyle(
+                                            color: theme.textSecondary,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (_message.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _message,
+                              style: TextStyle(
+                                color: theme.danger,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                          LiquidGlass(
+                            useNative: false,
+                            radius: 18,
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: CupertinoButton(
+                                color: _isAuthenticating
+                                    ? null
+                                    : blue.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 17,
+                                ),
+                                onPressed: _isAuthenticating ? null : _submit,
+                                child: Text(
+                                  _busy ? '로그인 중…' : '이메일로 로그인',
+                                  style: TextStyle(
+                                    color: _isAuthenticating
+                                        ? CupertinoColors.secondaryLabel
+                                              .resolveFrom(context)
+                                        : blue,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _isAuthenticating
+                                ? null
+                                : widget.onSignup,
+                            child: Text(
+                              '계정이 없나요? 회원가입',
+                              style: TextStyle(
+                                color: theme.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _isAuthenticating
+                                ? null
+                                : widget.onContinueAsGuest,
+                            child: Text(
+                              '로그인 없이 계속하기',
+                              style: TextStyle(
+                                color: theme.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
