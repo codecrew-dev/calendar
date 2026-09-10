@@ -34,10 +34,13 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordFocus = FocusNode();
+  late final AnimationController _entranceController;
+  bool _motionInitialized = false;
   bool _passwordVisible = false;
   bool _emailFormVisible = false;
   bool _busy = false;
@@ -52,8 +55,24 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 620),
+    );
     ServerConnectionMonitor.available.addListener(_onConnectionChanged);
     _loadProviders();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_motionInitialized) return;
+    _motionInitialized = true;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _entranceController.value = 1;
+    } else {
+      _entranceController.forward();
+    }
   }
 
   void _onConnectionChanged() {
@@ -144,6 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     ServerConnectionMonitor.available.removeListener(_onConnectionChanged);
+    _entranceController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _passwordFocus.dispose();
@@ -213,57 +233,87 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Spacer(flex: 5),
-                _buildBrandHero(context),
+                _enter(order: 0, child: _buildBrandHero(context)),
                 const Spacer(flex: 6),
-                _buildOptionButton(
-                  label: '이메일로 계속 진행',
-                  icon: Icon(CupertinoIcons.envelope, color: blue, size: 27),
-                  color: blue.withValues(alpha: 0.16),
-                  foregroundColor: blue,
-                  onPressed: _isAuthenticating
-                      ? null
-                      : () => setState(() => _emailFormVisible = true),
-                ),
-                const SizedBox(height: 14),
-                _buildOptionButton(
-                  label: 'Apple 계정으로 계속 진행',
-                  icon: const Icon(Icons.apple, color: Colors.white, size: 31),
-                  color: darkButton,
-                  onPressed: _isAuthenticating
-                      ? null
-                      : () => _socialLogin(apple.id),
-                ),
-                const SizedBox(height: 14),
-                _buildOptionButton(
-                  label: 'Google 계정으로 계속 진행',
-                  icon: SizedBox(
-                    width: 29,
-                    height: 29,
-                    child: google.mark(context),
+                _enter(
+                  order: 1,
+                  child: _buildOptionButton(
+                    label: '이메일로 계속 진행',
+                    icon: Icon(CupertinoIcons.envelope, color: blue, size: 27),
+                    color: blue.withValues(alpha: 0.16),
+                    foregroundColor: blue,
+                    onPressed: _isAuthenticating
+                        ? null
+                        : () => setState(() => _emailFormVisible = true),
                   ),
-                  color: Colors.white,
-                  foregroundColor: const Color(0xFF1F1F1F),
-                  onPressed: _isAuthenticating
-                      ? null
-                      : () => _socialLogin(google.id),
+                ),
+                const SizedBox(height: 14),
+                _enter(
+                  order: 2,
+                  child: _buildOptionButton(
+                    label: 'Apple 계정으로 계속 진행',
+                    icon: const Icon(
+                      Icons.apple,
+                      color: Colors.white,
+                      size: 31,
+                    ),
+                    color: darkButton,
+                    onPressed: _isAuthenticating
+                        ? null
+                        : () => _socialLogin(apple.id),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _enter(
+                  order: 3,
+                  child: _buildOptionButton(
+                    label: 'Google 계정으로 계속 진행',
+                    icon: SizedBox(
+                      width: 29,
+                      height: 29,
+                      child: google.mark(context),
+                    ),
+                    color: Colors.white,
+                    foregroundColor: const Color(0xFF1F1F1F),
+                    onPressed: _isAuthenticating
+                        ? null
+                        : () => _socialLogin(google.id),
+                  ),
                 ),
                 const SizedBox(height: 20),
-                _buildOtherSocialSection(),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _isAuthenticating
-                      ? null
-                      : widget.onContinueAsGuest,
-                  child: const Text(
-                    '로그인 없이 계속하기',
-                    style: TextStyle(color: Color(0xFF98989F), fontSize: 14),
-                  ),
-                ),
+                _enter(order: 4, child: _buildOtherSocialSection()),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _enter({required int order, required Widget child}) {
+    if (MediaQuery.disableAnimationsOf(context)) return child;
+    final start = order * 0.1;
+    final animation = CurvedAnimation(
+      parent: _entranceController,
+      curve: Interval(
+        start,
+        (start + 0.45).clamp(0, 1),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    return AnimatedBuilder(
+      animation: animation,
+      child: child,
+      builder: (context, child) {
+        final value = animation.value;
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 20 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -575,18 +625,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               style: TextStyle(
                                 color: theme.textSecondary,
                                 fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: _isAuthenticating
-                                ? null
-                                : widget.onContinueAsGuest,
-                            child: Text(
-                              '로그인 없이 계속하기',
-                              style: TextStyle(
-                                color: theme.textSecondary,
-                                fontSize: 14,
                               ),
                             ),
                           ),
