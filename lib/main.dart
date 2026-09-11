@@ -21,6 +21,7 @@ import 'theme/app_theme.dart';
 import 'screens/month_agenda.dart';
 import 'widgets/top_bar.dart';
 import 'widgets/liquid_glass.dart';
+import 'widgets/server_connection_monitor.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,7 +51,9 @@ class CalendarApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildMaterialTheme(lightTheme),
       darkTheme: buildMaterialTheme(darkTheme),
-      home: AuthGate(deviceZone: deviceZone),
+      // Place this below MaterialApp so its dialog uses the root Navigator,
+      // and above AuthGate so it also covers the login and consent flow.
+      home: ServerConnectionMonitor(child: AuthGate(deviceZone: deviceZone)),
     );
   }
 }

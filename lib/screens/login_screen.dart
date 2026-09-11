@@ -462,20 +462,32 @@ class _LoginScreenState extends State<LoginScreen>
                         children: [
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: CupertinoButton(
-                              padding: EdgeInsets.zero,
-                              onPressed: _isAuthenticating
-                                  ? null
-                                  : () => setState(
-                                      () => _emailFormVisible = false,
-                                    ),
-                              child: const Icon(CupertinoIcons.chevron_back),
+                            child: LiquidGlass(
+                              useNative: false,
+                              radius: 22,
+                              child: SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: _isAuthenticating
+                                      ? null
+                                      : () => setState(
+                                          () => _emailFormVisible = false,
+                                        ),
+                                  child: Icon(
+                                    CupertinoIcons.chevron_back,
+                                    color: blue,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                           Column(
                             children: [
                               Text(
-                                '일상 캘린더',
+                                '로그인',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: CupertinoColors.label.resolveFrom(
@@ -489,7 +501,7 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 14),
                               Text(
-                                '나의 하루를 차곡차곡',
+                                '등록한 이메일로 로그인해 주세요.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: CupertinoColors.secondaryLabel
