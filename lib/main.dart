@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -547,7 +548,7 @@ class _AccountDrawer extends StatelessWidget {
                     onPressed: () {},
                     icon: Icon(
                       Icons.calendar_month_outlined,
-                      color: theme.accent,
+                      color: CupertinoColors.activeBlue.resolveFrom(context),
                     ),
                   ),
                   IconButton(
