@@ -10,14 +10,19 @@ class AuthUser {
   final String email;
   final String name;
   final String createdAt;
-  const AuthUser({required this.id, required this.email, required this.name, required this.createdAt});
+  const AuthUser({
+    required this.id,
+    required this.email,
+    required this.name,
+    required this.createdAt,
+  });
 
   factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
-        id: json['id'] as String,
-        email: json['email'] as String? ?? '',
-        name: json['name'] as String? ?? '',
-        createdAt: json['createdAt'] as String? ?? '',
-      );
+    id: json['id'] as String,
+    email: json['email'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    createdAt: json['createdAt'] as String? ?? '',
+  );
 }
 
 class AuthException implements Exception {
@@ -31,7 +36,7 @@ enum SocialProvider { naver, kakao, google, apple, facebook }
 
 class ServerConnectionException extends AuthException {
   ServerConnectionException()
-      : super('서버에 연결할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');
+    : super('서버에 연결할 수 없습니다. 인터넷 연결을 확인한 후 다시 시도해 주세요.');
 }
 
 /// Port of calendar_app/lib/auth.ts + lib/sessionStorage.ts, talking to the
@@ -48,7 +53,10 @@ class AuthService {
   /// Same `http://localhost:3001` default as calendar_app/.env.example.
   /// Override at build/run time with `--dart-define=API_BASE_URL=...` (a LAN
   /// IP) when testing on a physical device.
-  static const _configuredBase = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3001');
+  static const _configuredBase = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:3001',
+  );
 
   String _apiBase() {
     var base = _configuredBase;
@@ -56,21 +64,37 @@ class AuthService {
     // The Android emulator's own loopback isn't the host machine's; 10.0.2.2
     // is the special alias Android provides for reaching it.
     if (!kIsWeb && Platform.isAndroid) {
-      base = base.replaceFirst(RegExp(r'^(https?://)(localhost|127\.0\.0\.1)(?=[:/]|$)'), r'$110.0.2.2');
+      base = base.replaceFirst(
+        RegExp(r'^(https?://)(localhost|127\.0\.0\.1)(?=[:/]|$)'),
+        r'$110.0.2.2',
+      );
     }
     return base;
   }
 
-  Future<T> _request<T>(String path, T Function(Map<String, dynamic>?) parse, {String method = 'GET', Map<String, dynamic>? body, String? token, Duration timeout = const Duration(seconds: 15)}) async {
+  Future<T> _request<T>(
+    String path,
+    T Function(Map<String, dynamic>?) parse, {
+    String method = 'GET',
+    Map<String, dynamic>? body,
+    String? token,
+    Duration timeout = const Duration(seconds: 15),
+  }) async {
     final uri = Uri.parse('${_apiBase()}$path');
-    final headers = {'Content-Type': 'application/json', if (token != null) 'Authorization': 'Bearer $token'};
+    final headers = {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
     http.Response response;
     try {
       response = await switch (method) {
-        'POST' => http.post(uri, headers: headers, body: body != null ? jsonEncode(body) : null),
+        'POST' => http.post(
+          uri,
+          headers: headers,
+          body: body != null ? jsonEncode(body) : null,
+        ),
         _ => http.get(uri, headers: headers),
-      }
-          .timeout(timeout);
+      }.timeout(timeout);
     } catch (_) {
       throw ServerConnectionException();
     }
@@ -82,20 +106,31 @@ class AuthService {
     if (response.statusCode == 204) return parse(null);
     Map<String, dynamic>? decoded;
     try {
-      decoded = response.body.isEmpty ? null : jsonDecode(response.body) as Map<String, dynamic>;
+      decoded = response.body.isEmpty
+          ? null
+          : jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
       decoded = null;
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw AuthException((decoded?['error'] as String?) ?? '서버 요청을 처리하지 못했습니다.');
+      throw AuthException(
+        (decoded?['error'] as String?) ?? '서버 요청을 처리하지 못했습니다.',
+      );
     }
     return parse(decoded);
   }
 
-  Future<AuthUser> _authenticate(String path, String email, String password) async {
+  Future<AuthUser> _authenticate(
+    String path,
+    String email,
+    String password,
+  ) async {
     final result = await _request(
       path,
-      (json) => (token: json!['token'] as String, user: AuthUser.fromJson(json['user'] as Map<String, dynamic>)),
+      (json) => (
+        token: json!['token'] as String,
+        user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
+      ),
       method: 'POST',
       body: {'email': email.trim(), 'password': password},
     );
@@ -103,9 +138,11 @@ class AuthService {
     return result.user;
   }
 
-  Future<AuthUser> login(String email, String password) => _authenticate('/api/auth/login', email, password);
+  Future<AuthUser> login(String email, String password) =>
+      _authenticate('/api/auth/login', email, password);
 
-  Future<AuthUser> register(String email, String password) => _authenticate('/api/auth/register', email, password);
+  Future<AuthUser> register(String email, String password) =>
+      _authenticate('/api/auth/register', email, password);
 
   Future<AuthUser?> restoreSession() async {
     final token = await _storage.read(key: _tokenKey);
@@ -113,7 +150,9 @@ class AuthService {
     try {
       return await _request(
         '/api/auth/me',
-        (json) => json == null ? null : AuthUser.fromJson(json['user'] as Map<String, dynamic>),
+        (json) => json == null
+            ? null
+            : AuthUser.fromJson(json['user'] as Map<String, dynamic>),
         token: token,
       );
     } catch (_) {
@@ -125,7 +164,14 @@ class AuthService {
   Future<void> logout() async {
     final token = await _storage.read(key: _tokenKey);
     try {
-      if (token != null) await _request('/api/auth/logout', (_) => null, method: 'POST', token: token);
+      if (token != null) {
+        await _request(
+          '/api/auth/logout',
+          (_) => null,
+          method: 'POST',
+          token: token,
+        );
+      }
     } finally {
       await _storage.delete(key: _tokenKey);
     }
@@ -140,12 +186,16 @@ class AuthService {
     return ids.map((id) => SocialProvider.values.byName(id)).toList();
   }
 
-  String socialLoginStartURL(SocialProvider provider) => '${_apiBase()}/api/auth/oauth/${provider.name}/start';
+  String socialLoginStartURL(SocialProvider provider) =>
+      '${_apiBase()}/api/auth/oauth/${provider.name}/start';
 
   Future<AuthUser> exchangeSocialCode(String code) async {
     final result = await _request(
       '/api/auth/oauth/exchange',
-      (json) => (token: json!['token'] as String, user: AuthUser.fromJson(json['user'] as Map<String, dynamic>)),
+      (json) => (
+        token: json!['token'] as String,
+        user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
+      ),
       method: 'POST',
       body: {'code': code},
     );

@@ -499,7 +499,9 @@ class _AccountDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final email = user?.email ?? '로그인이 필요합니다';
-    final name = user?.email.split('@').first;
+    final name = user?.name.isNotEmpty == true
+        ? user!.name
+        : user?.email.split('@').first;
     return Drawer(
       backgroundColor: theme.bgSecondary,
       child: SafeArea(
