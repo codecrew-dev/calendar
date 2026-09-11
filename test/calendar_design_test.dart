@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:calendar_app_flutter/screens/month_agenda.dart';
 import 'package:calendar_app_flutter/screens/time_grid_view.dart';
@@ -6,15 +7,16 @@ import 'package:calendar_app_flutter/theme/app_theme.dart';
 import 'package:calendar_app_flutter/widgets/top_bar.dart';
 
 void main() {
-  testWidgets('month navigation opens and invokes callbacks', (tester) async {
-    var previous = 0;
+  testWidgets('date picker opens and selects today', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: TopBar(
             theme: lightTheme,
             title: '2026. 9.',
-            onPrev: () => previous++,
+            selectedDate: DateTime(2026, 9, 10),
+            onDateSelected: (_) {},
+            onPrev: () {},
             onNext: () {},
             onToday: () {},
             onMenu: () {},
@@ -23,11 +25,10 @@ void main() {
         ),
       ),
     );
-    expect(find.text('오늘'), findsNothing);
     await tester.tap(find.textContaining('2026. 9.'));
     await tester.pump();
-    await tester.tap(find.byTooltip('이전 기간'));
-    expect(previous, 1);
+    expect(find.text('오늘'), findsOneWidget);
+    expect(find.byType(CupertinoDatePicker), findsOneWidget);
   });
 
   for (final theme in [lightTheme, darkTheme]) {

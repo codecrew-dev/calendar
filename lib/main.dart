@@ -163,6 +163,9 @@ class _CalendarHomeState extends State<CalendarHome>
   final ViewMode _view = ViewMode.month;
   DateTime _anchorDate = DateTime.now();
   String _selectedKey = date_utils.toDateKey(DateTime.now());
+  bool _showHolidays = true;
+  bool _showLunar = false;
+  bool _showSolarTerms = false;
   late SystemEventsSync _sync;
 
   @override
@@ -371,6 +374,12 @@ class _CalendarHomeState extends State<CalendarHome>
       drawer: _AccountDrawer(
         theme: theme,
         user: widget.user,
+        showHolidays: _showHolidays,
+        showLunar: _showLunar,
+        showSolarTerms: _showSolarTerms,
+        onHolidaysChanged: (value) => setState(() => _showHolidays = value),
+        onLunarChanged: (value) => setState(() => _showLunar = value),
+        onSolarTermsChanged: (value) => setState(() => _showSolarTerms = value),
         onLogout: widget.onLogout,
       ),
       body: SafeArea(
@@ -451,6 +460,7 @@ class _CalendarHomeState extends State<CalendarHome>
           viewDate: _anchorDate,
           events: expanded,
           selectedKey: _selectedKey,
+          showLunar: _showLunar,
           onEventPress: _openEdit,
           onSlotPress: (date, hour) =>
               _openCreate(date, '${hour.toString().padLeft(2, '0')}:00'),
@@ -490,10 +500,22 @@ class _CalendarHomeState extends State<CalendarHome>
 class _AccountDrawer extends StatelessWidget {
   final AppTheme theme;
   final AuthUser? user;
+  final bool showHolidays;
+  final bool showLunar;
+  final bool showSolarTerms;
+  final ValueChanged<bool> onHolidaysChanged;
+  final ValueChanged<bool> onLunarChanged;
+  final ValueChanged<bool> onSolarTermsChanged;
   final VoidCallback onLogout;
   const _AccountDrawer({
     required this.theme,
     required this.user,
+    required this.showHolidays,
+    required this.showLunar,
+    required this.showSolarTerms,
+    required this.onHolidaysChanged,
+    required this.onLunarChanged,
+    required this.onSolarTermsChanged,
     required this.onLogout,
   });
 
@@ -563,6 +585,36 @@ class _AccountDrawer extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Divider(color: theme.border, height: 1),
+              const SizedBox(height: 12),
+              Text(
+                '표시 설정',
+                style: TextStyle(
+                  color: theme.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              _displaySwitch(
+                context,
+                icon: Icons.celebration_outlined,
+                label: '공휴일',
+                value: showHolidays,
+                onChanged: onHolidaysChanged,
+              ),
+              _displaySwitch(
+                context,
+                icon: Icons.dark_mode_outlined,
+                label: '음력',
+                value: showLunar,
+                onChanged: onLunarChanged,
+              ),
+              _displaySwitch(
+                context,
+                icon: Icons.wb_sunny_outlined,
+                label: '절기',
+                value: showSolarTerms,
+                onChanged: onSolarTermsChanged,
+              ),
               const Spacer(),
               TextButton(
                 onPressed: () {
@@ -578,6 +630,22 @@ class _AccountDrawer extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _displaySwitch(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return SwitchListTile.adaptive(
+      contentPadding: EdgeInsets.zero,
+      secondary: Icon(icon, color: theme.textSecondary, size: 20),
+      title: Text(label, style: TextStyle(color: theme.text, fontSize: 15)),
+      value: value,
+      onChanged: onChanged,
     );
   }
 }

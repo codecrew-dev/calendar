@@ -15,6 +15,7 @@ class MonthAgenda extends StatefulWidget {
   final DateTime viewDate;
   final EventMap events;
   final String selectedKey;
+  final bool showLunar;
   final ValueChanged<String> onSelectDate;
   final ValueChanged<CalendarEvent> onEventPress;
   final void Function(DateTime, int) onSlotPress;
@@ -24,6 +25,7 @@ class MonthAgenda extends StatefulWidget {
     required this.viewDate,
     required this.events,
     required this.selectedKey,
+    this.showLunar = false,
     required this.onSelectDate,
     required this.onEventPress,
     required this.onSlotPress,
@@ -75,6 +77,7 @@ class _MonthAgendaState extends State<MonthAgenda> {
                     viewDate: widget.viewDate,
                     events: widget.events,
                     selectedKey: widget.selectedKey,
+                    showLunar: widget.showLunar,
                     compact: _open,
                     rowHeight: math.max(
                       90,
@@ -153,7 +156,8 @@ class _MonthAgendaState extends State<MonthAgenda> {
                                           ),
                                         ),
                                       ),
-                                      if (dates.formatLunarDate(day) != null)
+                                      if (widget.showLunar &&
+                                          dates.formatLunarDate(day) != null)
                                         Padding(
                                           padding: const EdgeInsets.only(
                                             right: 8,

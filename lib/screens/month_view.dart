@@ -10,6 +10,7 @@ class MonthView extends StatelessWidget {
   final DateTime viewDate;
   final EventMap events;
   final String? selectedKey;
+  final bool showLunar;
   final ValueChanged<String> onSelectDate;
   final bool compact;
   final double rowHeight;
@@ -20,6 +21,7 @@ class MonthView extends StatelessWidget {
     required this.viewDate,
     required this.events,
     required this.selectedKey,
+    this.showLunar = false,
     required this.onSelectDate,
     this.compact = false,
     this.rowHeight = 108,
@@ -70,6 +72,7 @@ class MonthView extends StatelessWidget {
                 today: today,
                 events: events,
                 selectedKey: selectedKey,
+                showLunar: showLunar,
                 onSelectDate: onSelectDate,
                 compact: compact,
               ),
@@ -86,6 +89,7 @@ class _MonthCell extends StatelessWidget {
   final DateTime today;
   final EventMap events;
   final String? selectedKey;
+  final bool showLunar;
   final ValueChanged<String> onSelectDate;
   final bool compact;
 
@@ -95,6 +99,7 @@ class _MonthCell extends StatelessWidget {
     required this.today,
     required this.events,
     required this.selectedKey,
+    required this.showLunar,
     required this.onSelectDate,
     required this.compact,
   });
@@ -150,6 +155,17 @@ class _MonthCell extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
+            if (!compact && showLunar)
+              Text(
+                date_utils
+                        .formatLunarDate(cell.date)
+                        ?.replaceFirst('음력 ', '') ??
+                    '',
+                style: TextStyle(
+                  color: theme.textMuted.withValues(alpha: opacity),
+                  fontSize: 8,
+                ),
+              ),
             if (!compact)
               Expanded(
                 child: Column(
