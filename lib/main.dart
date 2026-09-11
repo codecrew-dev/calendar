@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -49,6 +50,13 @@ class CalendarApp extends StatelessWidget {
     return MaterialApp(
       title: '캘린더',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('ko', 'KR'),
+      supportedLocales: const [Locale('ko', 'KR')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: buildMaterialTheme(lightTheme),
       darkTheme: buildMaterialTheme(darkTheme),
       // Place this below MaterialApp so its dialog uses the root Navigator,
@@ -359,7 +367,7 @@ class _CalendarHomeState extends State<CalendarHome>
       key: _scaffoldKey,
       backgroundColor: theme.bg,
 
-      endDrawer: _AccountDrawer(
+      drawer: _AccountDrawer(
         theme: theme,
         user: widget.user,
         onLogout: widget.onLogout,
@@ -370,10 +378,15 @@ class _CalendarHomeState extends State<CalendarHome>
             TopBar(
               theme: theme,
               title: _title,
+              selectedDate: _anchorDate,
               onPrev: _goPrev,
               onNext: _goNext,
               onToday: _goToday,
-              onMenu: () => _scaffoldKey.currentState?.openEndDrawer(),
+              onDateSelected: (date) => setState(() {
+                _anchorDate = date;
+                _selectedKey = date_utils.toDateKey(date);
+              }),
+              onMenu: () => _scaffoldKey.currentState?.openDrawer(),
               onSearch: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => SearchScreen(

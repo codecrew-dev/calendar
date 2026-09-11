@@ -219,6 +219,8 @@ class _LoginScreenState extends State<LoginScreen>
     final google = socialProviders.firstWhere(
       (provider) => provider.id == SocialProvider.google,
     );
+    final appleEnabled = _isSocialProviderEnabled(apple.id);
+    final googleEnabled = _isSocialProviderEnabled(google.id);
     final blue = CupertinoColors.activeBlue.resolveFrom(context);
     const darkButton = Color(0xFF1C1C1E);
     return Scaffold(
@@ -258,7 +260,8 @@ class _LoginScreenState extends State<LoginScreen>
                       size: 31,
                     ),
                     color: darkButton,
-                    onPressed: _isAuthenticating
+                    enabled: appleEnabled,
+                    onPressed: _isAuthenticating || !appleEnabled
                         ? null
                         : () => _socialLogin(apple.id),
                   ),
@@ -275,7 +278,8 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     color: Colors.white,
                     foregroundColor: const Color(0xFF1F1F1F),
-                    onPressed: _isAuthenticating
+                    enabled: googleEnabled,
+                    onPressed: _isAuthenticating || !googleEnabled
                         ? null
                         : () => _socialLogin(google.id),
                   ),
@@ -378,26 +382,28 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _buildCompactSocialButton(SocialProviderSpec provider) {
-    final enabled =
-        _providerStatus == _ProviderStatus.ready &&
-        _enabledProviders.contains(provider.id);
-    return SizedBox(
-      width: 50,
-      height: 50,
-      child: CupertinoButton(
-        padding: EdgeInsets.zero,
-        borderRadius: BorderRadius.circular(25),
-        color: provider.background,
-        onPressed: _isAuthenticating || !enabled
-            ? null
-            : () => _socialLogin(provider.id),
-        child: Opacity(
-          opacity: enabled ? 1 : 0.45,
+    final enabled = _isSocialProviderEnabled(provider.id);
+    return Opacity(
+      opacity: enabled ? 1 : 0.42,
+      child: SizedBox(
+        width: 50,
+        height: 50,
+        child: CupertinoButton(
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(25),
+          color: provider.background,
+          onPressed: _isAuthenticating || !enabled
+              ? null
+              : () => _socialLogin(provider.id),
           child: provider.mark(context),
         ),
       ),
     );
   }
+
+  bool _isSocialProviderEnabled(SocialProvider provider) =>
+      _providerStatus == _ProviderStatus.ready &&
+      _enabledProviders.contains(provider);
 
   Widget _buildOptionButton({
     required String label,
@@ -405,30 +411,34 @@ class _LoginScreenState extends State<LoginScreen>
     required Color color,
     required VoidCallback? onPressed,
     Color foregroundColor = Colors.white,
+    bool enabled = true,
   }) {
-    return SizedBox(
-      height: 56,
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        borderRadius: BorderRadius.circular(16),
-        color: color,
-        disabledColor: color.withValues(alpha: 0.45),
-        onPressed: onPressed,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            icon,
-            const SizedBox(width: 14),
-            Text(
-              label,
-              style: TextStyle(
-                color: foregroundColor,
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.5,
+    return Opacity(
+      opacity: enabled ? 1 : 0.42,
+      child: SizedBox(
+        height: 56,
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          borderRadius: BorderRadius.circular(16),
+          color: color,
+          disabledColor: color,
+          onPressed: onPressed,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              icon,
+              const SizedBox(width: 14),
+              Text(
+                label,
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.5,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
