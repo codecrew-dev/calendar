@@ -156,6 +156,9 @@ class _TopBarState extends State<TopBar> {
     required Color color,
   }) {
     return LiquidGlass(
+      // A native iOS platform view can remain above Scaffold's drawer layer.
+      // Keep top-bar controls in Flutter so the drawer covers them completely.
+      useNative: false,
       radius: 20,
       child: SizedBox(
         width: 40,

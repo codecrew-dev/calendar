@@ -8,12 +8,14 @@ import 'package:http/http.dart' as http;
 class AuthUser {
   final String id;
   final String email;
+  final String name;
   final String createdAt;
-  const AuthUser({required this.id, required this.email, required this.createdAt});
+  const AuthUser({required this.id, required this.email, required this.name, required this.createdAt});
 
   factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
         id: json['id'] as String,
         email: json['email'] as String? ?? '',
+        name: json['name'] as String? ?? '',
         createdAt: json['createdAt'] as String? ?? '',
       );
 }

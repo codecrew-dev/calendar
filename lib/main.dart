@@ -498,6 +498,8 @@ class _AccountDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final email = user?.email ?? '로그인이 필요합니다';
+    final name = user?.email.split('@').first;
     return Drawer(
       backgroundColor: theme.bgSecondary,
       child: SafeArea(
@@ -506,31 +508,59 @@ class _AccountDrawer extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text.rich(
-                TextSpan(
-                  text: '일상 ',
-                  style: TextStyle(
-                    color: theme.text,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -1,
-                  ),
-                  children: [
-                    TextSpan(
-                      text: 'calendar',
-                      style: TextStyle(color: theme.accent),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name == null || name.isEmpty ? '사용자' : name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.text,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.7,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: '캘린더 관리',
+                    onPressed: () {},
+                    icon: Icon(
+                      Icons.calendar_month_outlined,
+                      color: theme.accent,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '설정',
+                    onPressed: () {},
+                    icon: Icon(
+                      Icons.settings_outlined,
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 16),
+              Divider(color: theme.border, height: 1),
               const Spacer(),
-              Text(
-                user?.email ?? '게스트로 사용 중',
-                style: TextStyle(color: theme.textMuted, fontSize: 11),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 8),
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
