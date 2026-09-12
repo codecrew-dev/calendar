@@ -8,6 +8,7 @@ import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'logic/date_utils.dart' as date_utils;
+import 'logic/event_dedup.dart';
 import 'logic/recurrence.dart';
 import 'models/calendar_event.dart';
 import 'native/eventkit.dart';
@@ -278,11 +279,15 @@ class _CalendarHomeState extends State<CalendarHome>
   }
 
   EventMap _combineEvents(EventMap local, EventMap imported) {
-    final all = <String, List<CalendarEvent>>{};
-    for (final entry in local.entries) all[entry.key] = [...entry.value];
-    for (final entry in imported.entries)
-      (all[entry.key] ??= []).addAll(entry.value);
-    return all;
+    return mergeAndDeduplicateEvents(
+      local,
+      removeSpecialDayDuplicates(
+        imported,
+        _apiHolidays,
+        _apiSolarTerms,
+        _apiAnniversaries,
+      ),
+    );
   }
 
   Future<void> _connectCalendar(String provider) async {
