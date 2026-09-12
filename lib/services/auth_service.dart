@@ -5,6 +5,42 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+class ImportCalendar {
+  final String id, title, color;
+  const ImportCalendar({
+    required this.id,
+    required this.title,
+    required this.color,
+  });
+  factory ImportCalendar.fromJson(Map<String, dynamic> json) => ImportCalendar(
+    id: json['id'] as String,
+    title: json['title'] as String,
+    color: json['color'] as String? ?? '#707078',
+  );
+}
+
+class ImportedEvent {
+  final String id, date, title, color;
+  final String? time;
+  final int duration;
+  const ImportedEvent({
+    required this.id,
+    required this.date,
+    required this.title,
+    required this.color,
+    this.time,
+    required this.duration,
+  });
+  factory ImportedEvent.fromJson(Map<String, dynamic> json) => ImportedEvent(
+    id: json['id'] as String,
+    date: json['date'] as String,
+    title: json['title'] as String,
+    color: json['color'] as String? ?? '#707078',
+    time: json['time'] as String?,
+    duration: (json['duration'] as num).toInt(),
+  );
+}
+
 class AuthUser {
   final String id;
   final String email;
@@ -231,5 +267,58 @@ class AuthService {
     );
     await _storage.write(key: _tokenKey, value: result.token);
     return result.user;
+  }
+
+  Future<String> calendarImportStart(String provider) async {
+    final token = await _storage.read(key: _tokenKey);
+    if (token == null) throw AuthException('로그인이 필요합니다.');
+    return _request(
+      '/api/calendar-import/$provider/connect',
+      (json) => json!['url'] as String,
+      method: 'POST',
+      token: token,
+    );
+  }
+
+  Future<List<ImportCalendar>> importCalendars(String provider) async {
+    final token = await _storage.read(key: _tokenKey);
+    if (token == null) throw AuthException('로그인이 필요합니다.');
+    return _request(
+      '/api/calendar-import/$provider/calendars',
+      (json) => (json!['items'] as List)
+          .map(
+            (item) =>
+                ImportCalendar.fromJson(Map<String, dynamic>.from(item as Map)),
+          )
+          .toList(),
+      token: token,
+    );
+  }
+
+  Future<List<ImportedEvent>> importEvents(
+    String provider,
+    String calendar,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final token = await _storage.read(key: _tokenKey);
+    if (token == null) throw AuthException('로그인이 필요합니다.');
+    final query = Uri(
+      queryParameters: {
+        'calendar': calendar,
+        'from': from.toUtc().toIso8601String(),
+        'to': to.toUtc().toIso8601String(),
+      },
+    ).query;
+    return _request(
+      '/api/calendar-import/$provider/events?$query',
+      (json) => (json!['items'] as List)
+          .map(
+            (item) =>
+                ImportedEvent.fromJson(Map<String, dynamic>.from(item as Map)),
+          )
+          .toList(),
+      token: token,
+    );
   }
 }

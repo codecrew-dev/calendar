@@ -11,7 +11,7 @@
 	<key>NSCalendarsUsageDescription</key>
 	<string>Apple 캘린더에 일정을 추가하고 저장한 일정을 앱에 표시합니다.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>애플 캘린더에서 추가·수정한 일정을 이 앱에 표시하기 위해 캘린더 접근이 필요합니다.</string>
+	<string>Apple 및 기기에 등록된 캘린더의 일정을 읽기 전용으로 표시하기 위해 캘린더 접근이 필요합니다.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

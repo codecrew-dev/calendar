@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:provider/provider.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -19,6 +20,7 @@ import 'screens/time_grid_view.dart';
 import 'services/auth_service.dart';
 import 'storage/event_store.dart';
 import 'storage/display_settings.dart';
+import 'storage/imported_events.dart';
 import 'sync/system_events_sync.dart';
 import 'theme/app_theme.dart';
 import 'screens/month_agenda.dart';
@@ -34,11 +36,16 @@ Future<void> main() async {
   // real IANA Location matters — DST-safe wall-clock conversion).
   final deviceZone = tz.getLocation('Asia/Seoul');
   final store = EventStore();
+  final importedEvents = ImportedEvents();
   await store.load();
+  await importedEvents.load();
   await DisplaySettings.instance.load();
   runApp(
-    ChangeNotifierProvider.value(
-      value: store,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: store),
+        ChangeNotifierProvider.value(value: importedEvents),
+      ],
       child: CalendarApp(deviceZone: deviceZone),
     ),
   );
@@ -190,6 +197,7 @@ class _CalendarHomeState extends State<CalendarHome>
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _loadHolidays(_anchorDate.year),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshImported());
   }
 
   Future<void> _setDisplaySetting(
@@ -251,6 +259,135 @@ class _CalendarHomeState extends State<CalendarHome>
     );
   }
 
+  Future<void> _refreshImported() async {
+    final imports = context.read<ImportedEvents>();
+    final (from, to) = _range;
+    for (final entry in imports.sources.entries) {
+      try {
+        await imports.refresh(
+          entry.key,
+          entry.value,
+          date_utils.parseDateKey(from),
+          date_utils.parseDateKey(to),
+        );
+      } catch (_) {
+        // Preserve the previous import while offline or after a revoked authorization.
+      }
+    }
+  }
+
+  EventMap _combineEvents(EventMap local, EventMap imported) {
+    final all = <String, List<CalendarEvent>>{};
+    for (final entry in local.entries) all[entry.key] = [...entry.value];
+    for (final entry in imported.entries)
+      (all[entry.key] ??= []).addAll(entry.value);
+    return all;
+  }
+
+  Future<void> _connectCalendar(String provider) async {
+    try {
+      if (provider == 'apple' || provider == 'naver') {
+        if (!await EventKit.requestAccess())
+          throw AuthException('Apple 캘린더 접근을 허용해 주세요.');
+        final (from, to) = _range;
+        final native = await EventKit.fetchEvents(
+          date_utils.parseDateKey(from),
+          date_utils.parseDateKey(to),
+        );
+        final imported = <String, List<CalendarEvent>>{};
+        for (final event in native) {
+          (imported[event.date] ??= []).add(
+            event.copyWith(
+              id: 'import:$provider:${event.systemEventId ?? event.id}',
+              description:
+                  '${provider == 'naver' ? '네이버/CalDAV' : 'Apple'} · 읽기 전용',
+            ),
+          );
+        }
+        context.read<ImportedEvents>().replaceProvider(provider, imported);
+        if (mounted && provider == 'naver') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('iPhone 설정에 추가된 네이버 CalDAV 일정을 가져왔습니다.'),
+            ),
+          );
+        }
+        return;
+      }
+      final url = await AuthService.instance.calendarImportStart(provider);
+      final result = await FlutterWebAuth2.authenticate(
+        url: url,
+        callbackUrlScheme: 'calendar',
+      );
+      final callback = Uri.parse(result);
+      if (callback.queryParameters['result'] != 'success')
+        throw AuthException(callback.queryParameters['error'] ?? '연결하지 못했습니다.');
+      if (!mounted) return;
+      final calendars = await AuthService.instance.importCalendars(provider);
+      if (!mounted) return;
+      await _pickAndImport(provider, calendars);
+    } on AuthException catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('캘린더 연결을 완료하지 못했습니다.')));
+    }
+  }
+
+  Future<void> _pickAndImport(
+    String provider,
+    List<ImportCalendar> calendars,
+  ) async {
+    final selected = <ImportCalendar>{...calendars};
+    final choices = await showDialog<List<ImportCalendar>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('가져올 캘린더'),
+          content: SizedBox(
+            width: 360,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final calendar in calendars)
+                  CheckboxListTile(
+                    value: selected.contains(calendar),
+                    title: Text(calendar.title),
+                    onChanged: (checked) => setDialogState(
+                      () => checked == true
+                          ? selected.add(calendar)
+                          : selected.remove(calendar),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, selected.toList()),
+              child: const Text('가져오기'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choices == null || choices.isEmpty || !mounted) return;
+    final (from, to) = _range;
+    await context.read<ImportedEvents>().refresh(
+      provider,
+      choices,
+      date_utils.parseDateKey(from),
+      date_utils.parseDateKey(to),
+    );
+  }
+
   String get _title {
     switch (_view) {
       case ViewMode.month:
@@ -306,6 +443,7 @@ class _CalendarHomeState extends State<CalendarHome>
     if (_apiHolidaysYear != _anchorDate.year) {
       _loadHolidays(_anchorDate.year);
     }
+    _refreshImported();
   }
 
   bool _creatingEvent = false;
@@ -352,6 +490,12 @@ class _CalendarHomeState extends State<CalendarHome>
   }
 
   Future<void> _openEdit(CalendarEvent event) async {
+    if (event.id.startsWith('import:')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('가져온 일정은 읽기 전용입니다. 원본 캘린더에서 수정해 주세요.')),
+      );
+      return;
+    }
     final store = context.read<EventStore>();
     final seriesId = event.seriesId;
     final source = seriesId != null
@@ -427,8 +571,14 @@ class _CalendarHomeState extends State<CalendarHome>
         ? darkTheme
         : lightTheme;
     final store = context.watch<EventStore>();
+    final imported = context.watch<ImportedEvents>();
     final (from, to) = _range;
-    final expanded = expandEvents(store.events, from, to, widget.deviceZone);
+    final expanded = expandEvents(
+      _combineEvents(store.events, imported.events),
+      from,
+      to,
+      widget.deviceZone,
+    );
 
     return Scaffold(
       key: _scaffoldKey,
@@ -461,6 +611,7 @@ class _CalendarHomeState extends State<CalendarHome>
           value,
           () => _showSolarTerms = value,
         ),
+        onConnectCalendar: _connectCalendar,
         onLogout: widget.onLogout,
       ),
       body: SafeArea(
@@ -602,6 +753,7 @@ class _AccountDrawer extends StatelessWidget {
   final ValueChanged<bool> onLunarChanged;
   final ValueChanged<bool> onSolarTermsChanged;
   final VoidCallback onLogout;
+  final ValueChanged<String> onConnectCalendar;
   const _AccountDrawer({
     required this.theme,
     required this.user,
@@ -614,6 +766,7 @@ class _AccountDrawer extends StatelessWidget {
     required this.onLunarChanged,
     required this.onSolarTermsChanged,
     required this.onLogout,
+    required this.onConnectCalendar,
   });
 
   @override
@@ -685,6 +838,31 @@ class _AccountDrawer extends StatelessWidget {
               const SizedBox(height: 20),
               _sectionTitle('추가 캘린더'),
               const SizedBox(height: 10),
+              _calendarConnect(
+                'Apple 캘린더',
+                CupertinoIcons.calendar,
+                () => onConnectCalendar('apple'),
+              ),
+              _calendarConnect(
+                '네이버 캘린더 (iPhone CalDAV)',
+                CupertinoIcons.cloud,
+                () => onConnectCalendar('naver'),
+              ),
+              _calendarConnect(
+                'Google 캘린더',
+                CupertinoIcons.globe,
+                () => onConnectCalendar('google'),
+              ),
+              _calendarConnect(
+                '카카오 캘린더',
+                CupertinoIcons.chat_bubble_2,
+                () => onConnectCalendar('kakao'),
+              ),
+              _calendarConnect(
+                'Notion 캘린더',
+                CupertinoIcons.doc_text,
+                () => onConnectCalendar('notion'),
+              ),
               _displayCheckbox(
                 label: '법정 기념일',
                 value: showAnniversaries,
@@ -738,6 +916,32 @@ class _AccountDrawer extends StatelessWidget {
       ),
     ),
   );
+
+  Widget _calendarConnect(String label, IconData icon, VoidCallback onTap) =>
+      InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: SizedBox(
+          height: 42,
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: theme.textSecondary),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(color: theme.text, fontSize: 15),
+                ),
+              ),
+              Icon(
+                CupertinoIcons.chevron_right,
+                size: 16,
+                color: theme.textMuted,
+              ),
+            ],
+          ),
+        ),
+      );
 
   Widget _displayCheckbox({
     required String label,
