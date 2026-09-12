@@ -18,6 +18,7 @@ import 'screens/search_screen.dart';
 import 'screens/time_grid_view.dart';
 import 'services/auth_service.dart';
 import 'storage/event_store.dart';
+import 'storage/display_settings.dart';
 import 'sync/system_events_sync.dart';
 import 'theme/app_theme.dart';
 import 'screens/month_agenda.dart';
@@ -34,6 +35,7 @@ Future<void> main() async {
   final deviceZone = tz.getLocation('Asia/Seoul');
   final store = EventStore();
   await store.load();
+  await DisplaySettings.instance.load();
   runApp(
     ChangeNotifierProvider.value(
       value: store,
@@ -163,10 +165,16 @@ class _CalendarHomeState extends State<CalendarHome>
   final ViewMode _view = ViewMode.month;
   DateTime _anchorDate = DateTime.now();
   String _selectedKey = date_utils.toDateKey(DateTime.now());
-  bool _showHolidays = true;
-  bool _showLunar = false;
-  bool _showSolarTerms = false;
-  bool _showAnniversaries = false;
+  bool _showHolidays = DisplaySettings.instance.enabled(
+    DisplaySetting.holidays,
+  );
+  bool _showLunar = DisplaySettings.instance.enabled(DisplaySetting.lunar);
+  bool _showSolarTerms = DisplaySettings.instance.enabled(
+    DisplaySetting.solarTerms,
+  );
+  bool _showAnniversaries = DisplaySettings.instance.enabled(
+    DisplaySetting.anniversaries,
+  );
   Map<String, String> _apiHolidays = const {};
   Map<String, String> _apiSolarTerms = const {};
   Map<String, List<String>> _apiAnniversaries = const {};
@@ -182,6 +190,22 @@ class _CalendarHomeState extends State<CalendarHome>
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _loadHolidays(_anchorDate.year),
     );
+  }
+
+  Future<void> _setDisplaySetting(
+    DisplaySetting setting,
+    bool value,
+    VoidCallback update,
+  ) async {
+    setState(update);
+    try {
+      await DisplaySettings.instance.setEnabled(setting, value);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('표시 설정을 저장하지 못했습니다. 다시 시도해 주세요.')),
+      );
+    }
   }
 
   Future<void> _loadHolidays(int year) async {
@@ -417,11 +441,26 @@ class _CalendarHomeState extends State<CalendarHome>
         showLunar: _showLunar,
         showSolarTerms: _showSolarTerms,
         showAnniversaries: _showAnniversaries,
-        onAnniversariesChanged: (value) =>
-            setState(() => _showAnniversaries = value),
-        onHolidaysChanged: (value) => setState(() => _showHolidays = value),
-        onLunarChanged: (value) => setState(() => _showLunar = value),
-        onSolarTermsChanged: (value) => setState(() => _showSolarTerms = value),
+        onAnniversariesChanged: (value) => _setDisplaySetting(
+          DisplaySetting.anniversaries,
+          value,
+          () => _showAnniversaries = value,
+        ),
+        onHolidaysChanged: (value) => _setDisplaySetting(
+          DisplaySetting.holidays,
+          value,
+          () => _showHolidays = value,
+        ),
+        onLunarChanged: (value) => _setDisplaySetting(
+          DisplaySetting.lunar,
+          value,
+          () => _showLunar = value,
+        ),
+        onSolarTermsChanged: (value) => _setDisplaySetting(
+          DisplaySetting.solarTerms,
+          value,
+          () => _showSolarTerms = value,
+        ),
         onLogout: widget.onLogout,
       ),
       body: SafeArea(
