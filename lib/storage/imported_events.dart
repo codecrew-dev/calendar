@@ -8,9 +8,16 @@ import '../services/auth_service.dart';
 
 class ImportedEvents extends ChangeNotifier {
   static const _sourcesKey = 'calendar.import.sources.v1';
+  static const _visibilityKey = 'calendar.import.visibility.v1';
   EventMap _events = const {};
   final Map<String, List<ImportCalendar>> _sources = {};
-  EventMap get events => _events;
+  final Map<String, bool> _visibility = {};
+  EventMap get events => {
+    for (final entry in _events.entries)
+      entry.key: entry.value
+          .where((event) => _visibility[event.systemCalendarId] ?? true)
+          .toList(),
+  };
   Map<String, List<ImportCalendar>> get sources => _sources;
 
   Future<void> load() async {
@@ -27,9 +34,34 @@ class ImportedEvents extends ChangeNotifier {
             )
             .toList();
       }
+      final visibility = (await SharedPreferences.getInstance()).getString(
+        _visibilityKey,
+      );
+      if (visibility != null) {
+        _visibility.addAll(
+          Map<String, dynamic>.from(jsonDecode(visibility) as Map)
+              .map((key, value) => MapEntry(key, value as bool)),
+        );
+      }
     } catch (_) {
       _sources.clear();
     }
+  }
+
+  bool isVisible(String provider, String calendarId) =>
+      _visibility['$provider|$calendarId'] ?? true;
+
+  Future<void> setVisible(
+    String provider,
+    String calendarId,
+    bool visible,
+  ) async {
+    _visibility['$provider|$calendarId'] = visible;
+    await (await SharedPreferences.getInstance()).setString(
+      _visibilityKey,
+      jsonEncode(_visibility),
+    );
+    notifyListeners();
   }
 
   void replace(EventMap events) {
@@ -74,6 +106,7 @@ class ImportedEvents extends ChangeNotifier {
           time: item.time,
           duration: item.duration,
           color: item.color,
+          systemCalendarId: '$provider|${calendar.id}',
           description: '$provider · 읽기 전용',
         );
         (next[event.date] ??= []).add(event);

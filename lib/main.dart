@@ -349,7 +349,7 @@ class _CalendarHomeState extends State<CalendarHome>
         theme: Theme.of(context).brightness == Brightness.dark
             ? darkTheme
             : lightTheme,
-        connected: imports.sources.keys.toSet(),
+        imports: imports,
         onConnect: (provider) async {
           Navigator.of(sheetContext).pop();
           await _connectCalendar(provider);
@@ -999,11 +999,11 @@ class _AccountDrawer extends StatelessWidget {
 
 class _CalendarConnectionsSheet extends StatelessWidget {
   final AppTheme theme;
-  final Set<String> connected;
+  final ImportedEvents imports;
   final ValueChanged<String> onConnect;
   const _CalendarConnectionsSheet({
     required this.theme,
-    required this.connected,
+    required this.imports,
     required this.onConnect,
   });
 
@@ -1082,6 +1082,28 @@ class _CalendarConnectionsSheet extends StatelessWidget {
                 '날짜 속성이 있는 데이터베이스 선택',
               ),
             ]),
+            if (imports.sources.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              Text(
+                '표시할 캘린더',
+                style: TextStyle(
+                  color: theme.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 9),
+              AnimatedBuilder(
+                animation: imports,
+                builder: (context, _) => Column(
+                  children: [
+                    for (final entry in imports.sources.entries)
+                      for (final calendar in entry.value)
+                        _visibilityRow(entry.key, calendar),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1106,7 +1128,7 @@ class _CalendarConnectionsSheet extends StatelessWidget {
       );
 
   Widget _connectionRow(_ConnectionInfo item) {
-    final isConnected = connected.contains(item.id);
+    final isConnected = imports.sources.containsKey(item.id);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
@@ -1180,6 +1202,43 @@ class _CalendarConnectionsSheet extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _visibilityRow(String provider, ImportCalendar calendar) {
+    final visible = imports.isVisible(provider, calendar.id);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.bgSecondary,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: colorFromHex(calendar.color),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Text(
+              calendar.title,
+              style: TextStyle(color: theme.text, fontSize: 14),
+            ),
+          ),
+          CupertinoSwitch(
+            value: visible,
+            onChanged: (value) =>
+                imports.setVisible(provider, calendar.id, value),
+          ),
+        ],
       ),
     );
   }
