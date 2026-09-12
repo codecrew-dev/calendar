@@ -338,6 +338,26 @@ class _CalendarHomeState extends State<CalendarHome>
     }
   }
 
+  Future<void> _showCalendarConnections() async {
+    final imports = context.read<ImportedEvents>();
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _CalendarConnectionsSheet(
+        theme: Theme.of(context).brightness == Brightness.dark
+            ? darkTheme
+            : lightTheme,
+        connected: imports.sources.keys.toSet(),
+        onConnect: (provider) async {
+          Navigator.of(sheetContext).pop();
+          await _connectCalendar(provider);
+        },
+      ),
+    );
+  }
+
   Future<void> _pickAndImport(
     String provider,
     List<ImportCalendar> calendars,
@@ -615,7 +635,8 @@ class _CalendarHomeState extends State<CalendarHome>
           value,
           () => _showSolarTerms = value,
         ),
-        onConnectCalendar: _connectCalendar,
+        importedCount: imported.sources.length,
+        onManageCalendars: _showCalendarConnections,
         onLogout: widget.onLogout,
       ),
       body: SafeArea(
@@ -763,7 +784,8 @@ class _AccountDrawer extends StatelessWidget {
   final ValueChanged<bool> onLunarChanged;
   final ValueChanged<bool> onSolarTermsChanged;
   final VoidCallback onLogout;
-  final ValueChanged<String> onConnectCalendar;
+  final int importedCount;
+  final VoidCallback onManageCalendars;
   const _AccountDrawer({
     required this.theme,
     required this.user,
@@ -776,7 +798,8 @@ class _AccountDrawer extends StatelessWidget {
     required this.onLunarChanged,
     required this.onSolarTermsChanged,
     required this.onLogout,
-    required this.onConnectCalendar,
+    required this.importedCount,
+    required this.onManageCalendars,
   });
 
   @override
@@ -850,29 +873,9 @@ class _AccountDrawer extends StatelessWidget {
               _sectionTitle('추가 캘린더'),
               const SizedBox(height: 10),
               _calendarConnect(
-                'Apple 캘린더',
-                CupertinoIcons.calendar,
-                () => onConnectCalendar('apple'),
-              ),
-              _calendarConnect(
-                '네이버 캘린더 (iPhone CalDAV)',
-                CupertinoIcons.cloud,
-                () => onConnectCalendar('naver'),
-              ),
-              _calendarConnect(
-                'Google 캘린더',
-                CupertinoIcons.globe,
-                () => onConnectCalendar('google'),
-              ),
-              _calendarConnect(
-                '카카오 캘린더',
-                CupertinoIcons.chat_bubble_2,
-                () => onConnectCalendar('kakao'),
-              ),
-              _calendarConnect(
-                'Notion 캘린더',
-                CupertinoIcons.doc_text,
-                () => onConnectCalendar('notion'),
+                importedCount == 0 ? '캘린더 연동' : '연동된 캘린더 $importedCount개',
+                CupertinoIcons.calendar_badge_plus,
+                onManageCalendars,
               ),
               _displayCheckbox(
                 label: '법정 기념일',
@@ -992,4 +995,198 @@ class _AccountDrawer extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CalendarConnectionsSheet extends StatelessWidget {
+  final AppTheme theme;
+  final Set<String> connected;
+  final ValueChanged<String> onConnect;
+  const _CalendarConnectionsSheet({
+    required this.theme,
+    required this.connected,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.82,
+        ),
+        decoration: BoxDecoration(
+          color: theme.bg,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Center(
+              child: Container(
+                width: 34,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '캘린더 연동',
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 21,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '외부 일정은 이 앱에서 읽기 전용으로 표시됩니다.',
+              style: TextStyle(color: theme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            _connectionSection('이 기기', [
+              _ConnectionInfo(
+                'apple',
+                'Apple 캘린더',
+                CupertinoIcons.calendar,
+                '기기에 등록된 캘린더 일정 가져오기',
+              ),
+              _ConnectionInfo(
+                'naver',
+                '네이버 캘린더',
+                CupertinoIcons.cloud,
+                'iPhone CalDAV에 등록된 네이버 일정',
+              ),
+            ]),
+            const SizedBox(height: 22),
+            _connectionSection('계정 연결', [
+              _ConnectionInfo(
+                'google',
+                'Google 캘린더',
+                CupertinoIcons.globe,
+                'Google 계정에서 캘린더 선택',
+              ),
+              _ConnectionInfo(
+                'kakao',
+                '카카오 캘린더',
+                CupertinoIcons.chat_bubble_2,
+                '카카오톡 캘린더 일정 가져오기',
+              ),
+              _ConnectionInfo(
+                'notion',
+                'Notion',
+                CupertinoIcons.doc_text,
+                '날짜 속성이 있는 데이터베이스 선택',
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _connectionSection(String title, List<_ConnectionInfo> items) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: theme.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 9),
+          for (final item in items) _connectionRow(item),
+        ],
+      );
+
+  Widget _connectionRow(_ConnectionInfo item) {
+    final isConnected = connected.contains(item.id);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => onConnect(item.id),
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: theme.bgSecondary,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: theme.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: theme.bg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(item.icon, color: theme.text, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.detail,
+                      style: TextStyle(color: theme.textMuted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (isConnected)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF34C759).withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    '연동됨',
+                    style: TextStyle(
+                      color: Color(0xFF248A3D),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              else
+                Icon(
+                  CupertinoIcons.chevron_right,
+                  color: theme.textMuted,
+                  size: 16,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionInfo {
+  final String id, title, detail;
+  final IconData icon;
+  const _ConnectionInfo(this.id, this.title, this.icon, this.detail);
 }
