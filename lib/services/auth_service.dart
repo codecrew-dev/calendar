@@ -186,6 +186,36 @@ class AuthService {
     return ids.map((id) => SocialProvider.values.byName(id)).toList();
   }
 
+  Future<
+    ({
+      Map<String, String> holidays,
+      Map<String, String> solarTerms,
+      Map<String, List<String>> anniversaries,
+    })
+  >
+  specialDays(int year) => _request('/api/holidays?year=$year', (json) {
+    final holidays = <String, String>{};
+    final solarTerms = <String, String>{};
+    final anniversaries = <String, List<String>>{};
+    for (final item in (json!['items'] as List).cast<Map<String, dynamic>>()) {
+      final kind = item['kind'];
+      if (kind == 'holiday' || kind == 'nationalHoliday') {
+        holidays[item['date'] as String] = item['name'] as String;
+      } else if (kind == 'anniversary') {
+        (anniversaries[item['date'] as String] ??= []).add(
+          item['name'] as String,
+        );
+      } else if (kind == 'solarTerm') {
+        solarTerms[item['date'] as String] = item['name'] as String;
+      }
+    }
+    return (
+      holidays: holidays,
+      solarTerms: solarTerms,
+      anniversaries: anniversaries,
+    );
+  });
+
   String socialLoginStartURL(SocialProvider provider) =>
       '${_apiBase()}/api/auth/oauth/${provider.name}/start';
 

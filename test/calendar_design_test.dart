@@ -7,6 +7,90 @@ import 'package:calendar_app_flutter/theme/app_theme.dart';
 import 'package:calendar_app_flutter/widgets/top_bar.dart';
 
 void main() {
+  testWidgets('left swipe goes next and right swipe goes previous', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var previous = 0;
+    var next = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildMaterialTheme(lightTheme),
+        home: Scaffold(
+          body: MonthAgenda(
+            theme: lightTheme,
+            viewDate: DateTime(2026, 9),
+            events: const {},
+            selectedKey: '2026-09-23',
+            onSelectDate: (_) {},
+            onEventPress: (_) {},
+            onSlotPress: (_, _) {},
+            onPreviousMonth: () => previous++,
+            onNextMonth: () => next++,
+          ),
+        ),
+      ),
+    );
+    await tester.drag(find.text('23'), const Offset(-160, 0));
+    await tester.pumpAndSettle();
+    expect(previous, 0);
+    expect(next, 1);
+    await tester.drag(find.text('23'), const Offset(160, 0));
+    await tester.pumpAndSettle();
+    expect(previous, 1);
+    expect(next, 1);
+    await tester.tap(find.text('23'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('23'), const Offset(-160, 0));
+    await tester.pumpAndSettle();
+    expect(previous, 1);
+    expect(next, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('solar terms appear only in calendar', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    Widget calendar(Map<String, String> terms) => MaterialApp(
+      theme: buildMaterialTheme(lightTheme),
+      home: Scaffold(
+        body: MonthAgenda(
+          theme: lightTheme,
+          viewDate: DateTime(2026, 9),
+          events: const {},
+          selectedKey: '2026-09-23',
+          showHolidays: false,
+          solarTermNames: terms,
+          onSelectDate: (_) {},
+          onEventPress: (_) {},
+          onSlotPress: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(calendar({'2026-09-23': '추분'}));
+    expect(find.text('추분'), findsOneWidget);
+    await tester.tap(find.text('23'));
+    await tester.pumpAndSettle();
+    expect(find.text('추분'), findsNothing);
+    expect(find.text('종일'), findsNothing);
+    expect(find.text('일정이 없습니다'), findsOneWidget);
+    await tester.tap(find.text('시간표'));
+    await tester.pumpAndSettle();
+    expect(find.text('추분'), findsNothing);
+    await tester.tap(find.text('목록'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(calendar({}));
+    await tester.pumpAndSettle();
+    expect(find.text('추분'), findsNothing);
+    expect(find.text('일정이 없습니다'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('date picker opens and selects today', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

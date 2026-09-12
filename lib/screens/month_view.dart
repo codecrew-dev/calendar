@@ -10,6 +10,10 @@ class MonthView extends StatelessWidget {
   final DateTime viewDate;
   final EventMap events;
   final String? selectedKey;
+  final bool showHolidays;
+  final Map<String, String> holidayNames;
+  final Map<String, String> solarTermNames;
+  final Map<String, List<String>> anniversaryNames;
   final bool showLunar;
   final ValueChanged<String> onSelectDate;
   final bool compact;
@@ -21,6 +25,10 @@ class MonthView extends StatelessWidget {
     required this.viewDate,
     required this.events,
     required this.selectedKey,
+    this.showHolidays = true,
+    this.holidayNames = const {},
+    this.solarTermNames = const {},
+    this.anniversaryNames = const {},
     this.showLunar = false,
     required this.onSelectDate,
     this.compact = false,
@@ -72,6 +80,10 @@ class MonthView extends StatelessWidget {
                 today: today,
                 events: events,
                 selectedKey: selectedKey,
+                showHolidays: showHolidays,
+                holidayNames: holidayNames,
+                solarTermNames: solarTermNames,
+                anniversaryNames: anniversaryNames,
                 showLunar: showLunar,
                 onSelectDate: onSelectDate,
                 compact: compact,
@@ -89,6 +101,10 @@ class _MonthCell extends StatelessWidget {
   final DateTime today;
   final EventMap events;
   final String? selectedKey;
+  final bool showHolidays;
+  final Map<String, String> holidayNames;
+  final Map<String, String> solarTermNames;
+  final Map<String, List<String>> anniversaryNames;
   final bool showLunar;
   final ValueChanged<String> onSelectDate;
   final bool compact;
@@ -99,6 +115,10 @@ class _MonthCell extends StatelessWidget {
     required this.today,
     required this.events,
     required this.selectedKey,
+    required this.showHolidays,
+    required this.holidayNames,
+    required this.solarTermNames,
+    required this.anniversaryNames,
     required this.showLunar,
     required this.onSelectDate,
     required this.compact,
@@ -107,7 +127,38 @@ class _MonthCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final key = date_utils.toDateKey(cell.date);
-    final dayEvents = events[key] ?? const <CalendarEvent>[];
+    final holiday = holidayNames[key];
+    final dayEvents = [
+      if (showHolidays && holiday != null)
+        CalendarEvent(
+          id: 'holiday:$key',
+          date: key,
+          title: holiday,
+          duration: 1440,
+          color: '#FF526F',
+        ),
+      if (solarTermNames[key] case final String name)
+        CalendarEvent(
+          id: 'solarTerm:$key',
+          date: key,
+          title: name,
+          duration: 1440,
+          color: '#929297',
+        ),
+      for (final name in anniversaryNames[key] ?? const <String>[])
+        CalendarEvent(
+          id: 'anniversary:$key:$name',
+          date: key,
+          title: name,
+          duration: 1440,
+          color: '#707078',
+        ),
+      ...?events[key],
+    ];
+    bool isSpecialDay(CalendarEvent event) =>
+        event.id == 'holiday:$key' ||
+        event.id == 'solarTerm:$key' ||
+        event.id.startsWith('anniversary:$key:');
     final isToday = date_utils.isSameDay(cell.date, today);
     final isSelected = selectedKey == key;
     final opacity = cell.inMonth ? 1.0 : 0.35;
@@ -145,7 +196,7 @@ class _MonthCell extends StatelessWidget {
                   color:
                       (isToday
                               ? theme.bg
-                              : weekday == 0
+                              : holiday != null || weekday == 0
                               ? const Color(0xFFFF526F)
                               : weekday == 6
                               ? const Color(0xFF7C85FF)
@@ -186,17 +237,25 @@ class _MonthCell extends StatelessWidget {
                               ? Colors.transparent
                               : withAlpha(
                                   colorFromHex(event.color),
-                                  0.12 * opacity,
+                                  (event.id.startsWith('anniversary:$key:')
+                                          ? 0.20
+                                          : 0.12) *
+                                      opacity,
                                 ),
-                          border: Border(
-                            left: BorderSide(
-                              color: withAlpha(
-                                colorFromHex(event.color),
-                                0.6 * opacity,
-                              ),
-                              width: 2,
-                            ),
-                          ),
+                          borderRadius: isSpecialDay(event)
+                              ? BorderRadius.circular(2)
+                              : null,
+                          border: isSpecialDay(event)
+                              ? null
+                              : Border(
+                                  left: BorderSide(
+                                    color: withAlpha(
+                                      colorFromHex(event.color),
+                                      0.6 * opacity,
+                                    ),
+                                    width: 2,
+                                  ),
+                                ),
                         ),
                         child: Text(
                           event.title,
@@ -204,7 +263,11 @@ class _MonthCell extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 10,
-                            color: theme.text.withValues(alpha: opacity),
+                            color:
+                                (isSpecialDay(event)
+                                        ? colorFromHex(event.color)
+                                        : theme.text)
+                                    .withValues(alpha: opacity),
                           ),
                         ),
                       ),
@@ -221,7 +284,8 @@ class _MonthCell extends StatelessWidget {
                 spacing: 3,
                 children: [
                   for (final color in {
-                    for (final e in dayEvents) e.color,
+                    for (final e in events[key] ?? const <CalendarEvent>[])
+                      e.color,
                   }.take(4))
                     Container(
                       width: 5,

@@ -166,6 +166,11 @@ class _CalendarHomeState extends State<CalendarHome>
   bool _showHolidays = true;
   bool _showLunar = false;
   bool _showSolarTerms = false;
+  bool _showAnniversaries = false;
+  Map<String, String> _apiHolidays = const {};
+  Map<String, String> _apiSolarTerms = const {};
+  Map<String, List<String>> _apiAnniversaries = const {};
+  int? _apiHolidaysYear;
   late SystemEventsSync _sync;
 
   @override
@@ -174,6 +179,23 @@ class _CalendarHomeState extends State<CalendarHome>
     WidgetsBinding.instance.addObserver(this);
     _sync = SystemEventsSync(context.read<EventStore>());
     WidgetsBinding.instance.addPostFrameCallback((_) => _runSync());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _loadHolidays(_anchorDate.year),
+    );
+  }
+
+  Future<void> _loadHolidays(int year) async {
+    try {
+      final specialDays = await AuthService.instance.specialDays(year);
+      if (mounted && _anchorDate.year == year) {
+        setState(() {
+          _apiHolidays = specialDays.holidays;
+          _apiSolarTerms = specialDays.solarTerms;
+          _apiAnniversaries = specialDays.anniversaries;
+          _apiHolidaysYear = year;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -218,32 +240,49 @@ class _CalendarHomeState extends State<CalendarHome>
     }
   }
 
-  void _goPrev() => setState(() {
-    if (_view == ViewMode.month) {
-      _anchorDate = date_utils.addMonths(_anchorDate, -1);
-    }
-    if (_view == ViewMode.week) {
-      _anchorDate = date_utils.addDays(_anchorDate, -7);
-    }
-    if (_view == ViewMode.day) {
-      _anchorDate = date_utils.addDays(_anchorDate, -1);
-    }
-  });
+  void _goPrev() {
+    setState(() {
+      if (_view == ViewMode.month) {
+        _anchorDate = date_utils.addMonths(_anchorDate, -1);
+      }
+      if (_view == ViewMode.week) {
+        _anchorDate = date_utils.addDays(_anchorDate, -7);
+      }
+      if (_view == ViewMode.day) {
+        _anchorDate = date_utils.addDays(_anchorDate, -1);
+      }
+    });
+    _refreshHolidays();
+  }
 
-  void _goNext() => setState(() {
-    if (_view == ViewMode.month) {
-      _anchorDate = date_utils.addMonths(_anchorDate, 1);
-    }
-    if (_view == ViewMode.week) {
-      _anchorDate = date_utils.addDays(_anchorDate, 7);
-    }
-    if (_view == ViewMode.day) _anchorDate = date_utils.addDays(_anchorDate, 1);
-  });
+  void _goNext() {
+    setState(() {
+      if (_view == ViewMode.month) {
+        _anchorDate = date_utils.addMonths(_anchorDate, 1);
+      }
+      if (_view == ViewMode.week) {
+        _anchorDate = date_utils.addDays(_anchorDate, 7);
+      }
+      if (_view == ViewMode.day) {
+        _anchorDate = date_utils.addDays(_anchorDate, 1);
+      }
+    });
+    _refreshHolidays();
+  }
 
-  void _goToday() => setState(() {
-    _anchorDate = DateTime.now();
-    _selectedKey = date_utils.toDateKey(_anchorDate);
-  });
+  void _goToday() {
+    setState(() {
+      _anchorDate = DateTime.now();
+      _selectedKey = date_utils.toDateKey(_anchorDate);
+    });
+    _refreshHolidays();
+  }
+
+  void _refreshHolidays() {
+    if (_apiHolidaysYear != _anchorDate.year) {
+      _loadHolidays(_anchorDate.year);
+    }
+  }
 
   bool _creatingEvent = false;
 
@@ -377,6 +416,9 @@ class _CalendarHomeState extends State<CalendarHome>
         showHolidays: _showHolidays,
         showLunar: _showLunar,
         showSolarTerms: _showSolarTerms,
+        showAnniversaries: _showAnniversaries,
+        onAnniversariesChanged: (value) =>
+            setState(() => _showAnniversaries = value),
         onHolidaysChanged: (value) => setState(() => _showHolidays = value),
         onLunarChanged: (value) => setState(() => _showLunar = value),
         onSolarTermsChanged: (value) => setState(() => _showSolarTerms = value),
@@ -392,10 +434,13 @@ class _CalendarHomeState extends State<CalendarHome>
               onPrev: _goPrev,
               onNext: _goNext,
               onToday: _goToday,
-              onDateSelected: (date) => setState(() {
-                _anchorDate = date;
-                _selectedKey = date_utils.toDateKey(date);
-              }),
+              onDateSelected: (date) {
+                setState(() {
+                  _anchorDate = date;
+                  _selectedKey = date_utils.toDateKey(date);
+                });
+                _refreshHolidays();
+              },
               onMenu: () => _scaffoldKey.currentState?.openDrawer(),
               onSearch: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -460,14 +505,23 @@ class _CalendarHomeState extends State<CalendarHome>
           viewDate: _anchorDate,
           events: expanded,
           selectedKey: _selectedKey,
+          onPreviousMonth: _goPrev,
+          onNextMonth: _goNext,
+          showHolidays: _showHolidays,
+          holidayNames: _apiHolidays,
+          solarTermNames: _showSolarTerms ? _apiSolarTerms : const {},
+          anniversaryNames: _showAnniversaries ? _apiAnniversaries : const {},
           showLunar: _showLunar,
           onEventPress: _openEdit,
           onSlotPress: (date, hour) =>
               _openCreate(date, '${hour.toString().padLeft(2, '0')}:00'),
-          onSelectDate: (key) => setState(() {
-            _selectedKey = key;
-            _anchorDate = date_utils.parseDateKey(key);
-          }),
+          onSelectDate: (key) {
+            setState(() {
+              _selectedKey = key;
+              _anchorDate = date_utils.parseDateKey(key);
+            });
+            _refreshHolidays();
+          },
         );
       case ViewMode.week:
         return TimeGridView(
@@ -503,6 +557,8 @@ class _AccountDrawer extends StatelessWidget {
   final bool showHolidays;
   final bool showLunar;
   final bool showSolarTerms;
+  final bool showAnniversaries;
+  final ValueChanged<bool> onAnniversariesChanged;
   final ValueChanged<bool> onHolidaysChanged;
   final ValueChanged<bool> onLunarChanged;
   final ValueChanged<bool> onSolarTermsChanged;
@@ -513,6 +569,8 @@ class _AccountDrawer extends StatelessWidget {
     required this.showHolidays,
     required this.showLunar,
     required this.showSolarTerms,
+    required this.showAnniversaries,
+    required this.onAnniversariesChanged,
     required this.onHolidaysChanged,
     required this.onLunarChanged,
     required this.onSolarTermsChanged,
@@ -614,6 +672,13 @@ class _AccountDrawer extends StatelessWidget {
                 label: '절기',
                 value: showSolarTerms,
                 onChanged: onSolarTermsChanged,
+              ),
+              _displaySwitch(
+                context,
+                icon: Icons.flag_outlined,
+                label: '법정 기념일',
+                value: showAnniversaries,
+                onChanged: onAnniversariesChanged,
               ),
               const Spacer(),
               TextButton(

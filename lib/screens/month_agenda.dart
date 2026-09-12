@@ -15,8 +15,14 @@ class MonthAgenda extends StatefulWidget {
   final DateTime viewDate;
   final EventMap events;
   final String selectedKey;
+  final bool showHolidays;
+  final Map<String, String> holidayNames;
+  final Map<String, String> solarTermNames;
+  final Map<String, List<String>> anniversaryNames;
   final bool showLunar;
   final ValueChanged<String> onSelectDate;
+  final VoidCallback? onPreviousMonth;
+  final VoidCallback? onNextMonth;
   final ValueChanged<CalendarEvent> onEventPress;
   final void Function(DateTime, int) onSlotPress;
   const MonthAgenda({
@@ -25,8 +31,14 @@ class MonthAgenda extends StatefulWidget {
     required this.viewDate,
     required this.events,
     required this.selectedKey,
+    this.showHolidays = true,
+    this.holidayNames = const {},
+    this.solarTermNames = const {},
+    this.anniversaryNames = const {},
     this.showLunar = false,
     required this.onSelectDate,
+    this.onPreviousMonth,
+    this.onNextMonth,
     required this.onEventPress,
     required this.onSlotPress,
   });
@@ -39,6 +51,7 @@ class _MonthAgendaState extends State<MonthAgenda> {
   bool _open = false;
   bool _timeline = false;
   double _drag = 0;
+  double _horizontalDrag = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -64,29 +77,52 @@ class _MonthAgendaState extends State<MonthAgenda> {
           },
           child: Column(
             children: [
-              AnimatedContainer(
-                duration: MediaQuery.disableAnimationsOf(context)
-                    ? Duration.zero
-                    : const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                height: _open ? compactHeight : constraints.maxHeight,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: MonthView(
-                    theme: theme,
-                    viewDate: widget.viewDate,
-                    events: widget.events,
-                    selectedKey: widget.selectedKey,
-                    showLunar: widget.showLunar,
-                    compact: _open,
-                    rowHeight: math.max(
-                      90,
-                      (constraints.maxHeight - 28) / rows,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) => _horizontalDrag = 0,
+                onHorizontalDragUpdate: (details) =>
+                    _horizontalDrag += details.delta.dx,
+                onHorizontalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  final distance = _horizontalDrag;
+                  _horizontalDrag = 0;
+                  if (distance.abs() < 48 && velocity.abs() < 300) return;
+                  final direction = velocity.abs() >= 300 ? velocity : distance;
+                  if (direction < 0) {
+                    widget.onNextMonth?.call();
+                  } else {
+                    widget.onPreviousMonth?.call();
+                  }
+                },
+                onHorizontalDragCancel: () => _horizontalDrag = 0,
+                child: AnimatedContainer(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  height: _open ? compactHeight : constraints.maxHeight,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: MonthView(
+                      theme: theme,
+                      viewDate: widget.viewDate,
+                      events: widget.events,
+                      selectedKey: widget.selectedKey,
+                      showHolidays: widget.showHolidays,
+                      holidayNames: widget.holidayNames,
+                      solarTermNames: widget.solarTermNames,
+                      anniversaryNames: widget.anniversaryNames,
+                      showLunar: widget.showLunar,
+                      compact: _open,
+                      rowHeight: math.max(
+                        90,
+                        (constraints.maxHeight - 28) / rows,
+                      ),
+                      onSelectDate: (key) {
+                        setState(() => _open = true);
+                        widget.onSelectDate(key);
+                      },
                     ),
-                    onSelectDate: (key) {
-                      setState(() => _open = true);
-                      widget.onSelectDate(key);
-                    },
                   ),
                 ),
               ),
@@ -252,12 +288,8 @@ class _MonthAgendaState extends State<MonthAgenda> {
 class _AgendaRow extends StatelessWidget {
   final AppTheme theme;
   final CalendarEvent event;
-  final VoidCallback onTap;
-  const _AgendaRow({
-    required this.theme,
-    required this.event,
-    required this.onTap,
-  });
+  final VoidCallback? onTap;
+  const _AgendaRow({required this.theme, required this.event, this.onTap});
 
   String _clock(int minutes) =>
       '${(minutes ~/ 60) % 12 == 0 ? 12 : (minutes ~/ 60) % 12}:${(minutes % 60).toString().padLeft(2, '0')}';
@@ -267,8 +299,10 @@ class _AgendaRow extends StatelessWidget {
     final start = event.time == null ? 0 : dates.minutesFromTime(event.time!);
     final end = start + event.duration;
     return Semantics(
-      button: true,
-      label: '${event.title} 일정 수정',
+      button: onTap != null,
+      label: onTap != null
+          ? '${event.title} 일정 수정'
+          : '${event.title} 종일 ${event.description ?? ''}',
       child: InkWell(
         onTap: onTap,
         child: Padding(
