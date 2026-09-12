@@ -623,7 +623,7 @@ class _AccountDrawer extends StatelessWidget {
         ? user!.name
         : user?.email.split('@').first;
     return Drawer(
-      backgroundColor: theme.bgSecondary,
+      backgroundColor: theme.bg,
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(18),
@@ -682,42 +682,32 @@ class _AccountDrawer extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Divider(color: theme.border, height: 1),
-              const SizedBox(height: 12),
-              Text(
-                '표시 설정',
-                style: TextStyle(
-                  color: theme.textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+              const SizedBox(height: 20),
+              _sectionTitle('추가 캘린더'),
+              const SizedBox(height: 10),
+              _displayCheckbox(
+                label: '법정 기념일',
+                value: showAnniversaries,
+                onChanged: onAnniversariesChanged,
+                subscription: true,
               ),
-              _displaySwitch(
-                context,
-                icon: Icons.celebration_outlined,
+              const SizedBox(height: 28),
+              _sectionTitle('기능 표시'),
+              const SizedBox(height: 10),
+              _displayCheckbox(
                 label: '공휴일',
                 value: showHolidays,
                 onChanged: onHolidaysChanged,
               ),
-              _displaySwitch(
-                context,
-                icon: Icons.dark_mode_outlined,
+              _displayCheckbox(
                 label: '음력',
                 value: showLunar,
                 onChanged: onLunarChanged,
               ),
-              _displaySwitch(
-                context,
-                icon: Icons.wb_sunny_outlined,
+              _displayCheckbox(
                 label: '절기',
                 value: showSolarTerms,
                 onChanged: onSolarTermsChanged,
-              ),
-              _displaySwitch(
-                context,
-                icon: Icons.flag_outlined,
-                label: '법정 기념일',
-                value: showAnniversaries,
-                onChanged: onAnniversariesChanged,
               ),
               const Spacer(),
               TextButton(
@@ -737,19 +727,54 @@ class _AccountDrawer extends StatelessWidget {
     );
   }
 
-  Widget _displaySwitch(
-    BuildContext context, {
-    required IconData icon,
+  Widget _sectionTitle(String title) => Align(
+    alignment: Alignment.centerLeft,
+    child: Text(
+      title,
+      style: TextStyle(
+        color: theme.textSecondary,
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+
+  Widget _displayCheckbox({
     required String label,
     required bool value,
     required ValueChanged<bool> onChanged,
+    bool subscription = false,
   }) {
-    return SwitchListTile.adaptive(
-      contentPadding: EdgeInsets.zero,
-      secondary: Icon(icon, color: theme.textSecondary, size: 20),
-      title: Text(label, style: TextStyle(color: theme.text, fontSize: 15)),
-      value: value,
-      onChanged: onChanged,
+    return Semantics(
+      label: label,
+      checked: value,
+      onTap: () => onChanged(!value),
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () => onChanged(!value),
+        borderRadius: BorderRadius.circular(6),
+        child: SizedBox(
+          height: 44,
+          child: Row(
+            children: [
+              Icon(
+                value
+                    ? CupertinoIcons.checkmark_square_fill
+                    : CupertinoIcons.square,
+                size: 23,
+                color: subscription ? theme.textSecondary : theme.textMuted,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(color: theme.text, fontSize: 15),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
