@@ -57,7 +57,19 @@ class _MonthAgendaState extends State<MonthAgenda> {
   Widget build(BuildContext context) {
     final theme = widget.theme;
     final day = dates.parseDateKey(widget.selectedKey);
-    final events = [...?widget.events[widget.selectedKey]]
+    final anniversaries = [
+      for (final name
+          in widget.anniversaryNames[widget.selectedKey] ?? const <String>[])
+        CalendarEvent(
+          id: 'anniversary:${widget.selectedKey}:$name',
+          date: widget.selectedKey,
+          title: name,
+          description: '법정 기념일',
+          duration: 1440,
+          color: '#707078',
+        ),
+    ];
+    final events = [...anniversaries, ...?widget.events[widget.selectedKey]]
       ..sort((a, b) => (a.time ?? '').compareTo(b.time ?? ''));
     final rows =
         dates
@@ -237,9 +249,16 @@ class _MonthAgendaState extends State<MonthAgenda> {
                                     key: ValueKey(widget.selectedKey),
                                     theme: theme,
                                     days: [day],
-                                    events: widget.events,
+                                    events: {
+                                      ...widget.events,
+                                      widget.selectedKey: events,
+                                    },
                                     onSlotPress: widget.onSlotPress,
-                                    onEventPress: widget.onEventPress,
+                                    onEventPress: (event) {
+                                      if (!anniversaries.contains(event)) {
+                                        widget.onEventPress(event);
+                                      }
+                                    },
                                   )
                                 : ListView(
                                     padding: const EdgeInsets.fromLTRB(
@@ -266,8 +285,10 @@ class _MonthAgendaState extends State<MonthAgenda> {
                                         _AgendaRow(
                                           theme: theme,
                                           event: event,
-                                          onTap: () =>
-                                              widget.onEventPress(event),
+                                          onTap: anniversaries.contains(event)
+                                              ? null
+                                              : () =>
+                                                    widget.onEventPress(event),
                                         ),
                                     ],
                                   ),

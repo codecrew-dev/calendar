@@ -7,6 +7,51 @@ import 'package:calendar_app_flutter/theme/app_theme.dart';
 import 'package:calendar_app_flutter/widgets/top_bar.dart';
 
 void main() {
+  testWidgets('anniversaries appear in agenda and all-day timeline', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    var edits = 0;
+    Widget calendar(Map<String, List<String>> names) => MaterialApp(
+      theme: buildMaterialTheme(lightTheme),
+      home: Scaffold(
+        body: MonthAgenda(
+          theme: lightTheme,
+          viewDate: DateTime(2026, 10),
+          events: const {},
+          selectedKey: '2026-10-01',
+          anniversaryNames: names,
+          onSelectDate: (_) {},
+          onEventPress: (_) => edits++,
+          onSlotPress: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      calendar({
+        '2026-10-01': ['국군의 날'],
+      }),
+    );
+    await tester.tap(find.text('1').first);
+    await tester.pumpAndSettle();
+    expect(find.text('국군의 날'), findsOneWidget);
+    expect(find.text('일정이 없습니다'), findsNothing);
+    await tester.tap(find.text('국군의 날'));
+    expect(edits, 0);
+    await tester.tap(find.text('시간표'));
+    await tester.pumpAndSettle();
+    expect(find.text('국군의 날'), findsOneWidget);
+    await tester.tap(find.text('국군의 날'));
+    expect(edits, 0);
+    await tester.pumpWidget(calendar({}));
+    await tester.pumpAndSettle();
+    expect(find.text('국군의 날'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('left swipe goes next and right swipe goes previous', (
     tester,
   ) async {

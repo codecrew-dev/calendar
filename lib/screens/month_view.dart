@@ -284,6 +284,7 @@ class _MonthCell extends StatelessWidget {
                 spacing: 3,
                 children: [
                   for (final color in {
+                    if (anniversaryNames[key]?.isNotEmpty ?? false) '#707078',
                     for (final e in events[key] ?? const <CalendarEvent>[])
                       e.color,
                   }.take(4))
