@@ -25,6 +25,7 @@ class MonthAgenda extends StatefulWidget {
   final VoidCallback? onNextMonth;
   final ValueChanged<CalendarEvent> onEventPress;
   final void Function(DateTime, int) onSlotPress;
+  final ValueChanged<VoidCallback>? onCollapseReady;
   const MonthAgenda({
     super.key,
     required this.theme,
@@ -41,6 +42,7 @@ class MonthAgenda extends StatefulWidget {
     this.onNextMonth,
     required this.onEventPress,
     required this.onSlotPress,
+    this.onCollapseReady,
   });
 
   @override
@@ -52,6 +54,24 @@ class _MonthAgendaState extends State<MonthAgenda> {
   bool _timeline = false;
   double _drag = 0;
   double _horizontalDrag = 0;
+  bool _collapseImmediately = false;
+
+  void _collapse() {
+    if (!_open) return;
+    setState(() {
+      _collapseImmediately = true;
+      _open = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _collapseImmediately = false);
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onCollapseReady?.call(_collapse);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +128,9 @@ class _MonthAgendaState extends State<MonthAgenda> {
                 },
                 onHorizontalDragCancel: () => _horizontalDrag = 0,
                 child: AnimatedContainer(
-                  duration: MediaQuery.disableAnimationsOf(context)
+                  duration:
+                      _collapseImmediately ||
+                          MediaQuery.disableAnimationsOf(context)
                       ? Duration.zero
                       : const Duration(milliseconds: 300),
                   curve: Curves.easeInOut,

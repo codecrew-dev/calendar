@@ -187,6 +187,7 @@ class _CalendarHomeState extends State<CalendarHome>
   Map<String, List<String>> _apiAnniversaries = const {};
   int? _apiHolidaysYear;
   late SystemEventsSync _sync;
+  VoidCallback _collapseAgenda = () {};
 
   @override
   void initState() {
@@ -583,6 +584,9 @@ class _CalendarHomeState extends State<CalendarHome>
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: theme.bg,
+      // The month agenda can contain its own expanded panel. Keep the app
+      // menu visually and interactively above that panel while it is open.
+      drawerScrimColor: Colors.black.withValues(alpha: 0.56),
 
       drawer: _AccountDrawer(
         theme: theme,
@@ -631,7 +635,12 @@ class _CalendarHomeState extends State<CalendarHome>
                 });
                 _refreshHolidays();
               },
-              onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+              onMenu: () {
+                _collapseAgenda();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _scaffoldKey.currentState?.openDrawer();
+                });
+              },
               onSearch: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => SearchScreen(
@@ -705,6 +714,7 @@ class _CalendarHomeState extends State<CalendarHome>
           onEventPress: _openEdit,
           onSlotPress: (date, hour) =>
               _openCreate(date, '${hour.toString().padLeft(2, '0')}:00'),
+          onCollapseReady: (collapse) => _collapseAgenda = collapse,
           onSelectDate: (key) {
             setState(() {
               _selectedKey = key;
@@ -776,6 +786,7 @@ class _AccountDrawer extends StatelessWidget {
         ? user!.name
         : user?.email.split('@').first;
     return Drawer(
+      elevation: 32,
       backgroundColor: theme.bg,
       child: SafeArea(
         child: Padding(
