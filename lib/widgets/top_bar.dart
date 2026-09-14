@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 
 import '../theme/app_theme.dart';
+import '../models/calendar_event.dart';
 import 'liquid_glass.dart';
 
 class TopBar extends StatefulWidget {
+  static void _ignoreView(ViewMode _) {}
+
   final AppTheme theme;
   final String title;
   final DateTime selectedDate;
   final VoidCallback onPrev, onNext, onToday, onMenu, onSearch;
+  final ViewMode view;
+  final ValueChanged<ViewMode> onViewChanged;
   final ValueChanged<DateTime> onDateSelected;
   const TopBar({
     super.key,
@@ -20,6 +25,8 @@ class TopBar extends StatefulWidget {
     required this.onToday,
     required this.onMenu,
     required this.onSearch,
+    this.view = ViewMode.month,
+    this.onViewChanged = _ignoreView,
     required this.onDateSelected,
   });
 
@@ -80,12 +87,53 @@ class _TopBarState extends State<TopBar> {
                 onPressed: widget.onSearch,
                 color: theme.text,
               ),
+              _glassTextButton(
+                label: _viewLabel(widget.view),
+                onPressed: () => _showViewPicker(context),
+                color: theme.text,
+              ),
             ],
           ),
         ],
       ),
     );
   }
+
+  String _viewLabel(ViewMode view) => switch (view) {
+    ViewMode.list => '목록형',
+    ViewMode.week => '여러날',
+    ViewMode.day => '하루',
+    ViewMode.month => '월간',
+  };
+
+  Future<void> _showViewPicker(BuildContext context) =>
+      showCupertinoModalPopup<void>(
+        context: context,
+        builder: (sheetContext) => CupertinoActionSheet(
+          title: const Text('보기 방식'),
+          actions: [
+            for (final view in [
+              ViewMode.month,
+              ViewMode.list,
+              ViewMode.week,
+              ViewMode.day,
+            ])
+              CupertinoActionSheetAction(
+                isDefaultAction: widget.view == view,
+                onPressed: () {
+                  widget.onViewChanged(view);
+                  Navigator.pop(sheetContext);
+                },
+                child: Text(_viewLabel(view)),
+              ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            isDestructiveAction: false,
+            onPressed: () => Navigator.pop(sheetContext),
+            child: const Text('취소'),
+          ),
+        ),
+      );
 
   Future<void> _showDatePicker(BuildContext context) async {
     var picked = widget.selectedDate;
@@ -171,4 +219,20 @@ class _TopBarState extends State<TopBar> {
       ),
     );
   }
+
+  Widget _glassTextButton({
+    required String label,
+    required VoidCallback onPressed,
+    required Color color,
+  }) => LiquidGlass(
+    useNative: false,
+    radius: 20,
+    child: SizedBox(
+      height: 40,
+      child: TextButton(
+        onPressed: onPressed,
+        child: Text(label, style: TextStyle(color: color, fontSize: 13)),
+      ),
+    ),
+  );
 }

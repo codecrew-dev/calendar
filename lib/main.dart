@@ -176,7 +176,7 @@ class CalendarHome extends StatefulWidget {
 class _CalendarHomeState extends State<CalendarHome>
     with WidgetsBindingObserver {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
-  final ViewMode _view = ViewMode.month;
+  ViewMode _view = ViewMode.month;
   DateTime _anchorDate = DateTime.now();
   String _selectedKey = date_utils.toDateKey(DateTime.now());
   bool _showHolidays = DisplaySettings.instance.enabled(
@@ -820,6 +820,8 @@ class _CalendarHomeState extends State<CalendarHome>
                   ),
                 ),
               ),
+              view: _view,
+              onViewChanged: (view) => setState(() => _view = view),
             ),
             Expanded(
               child: !store.loaded
