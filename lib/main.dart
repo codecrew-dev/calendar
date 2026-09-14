@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/rendering.dart' show debugPaintBaselinesEnabled;
 import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:provider/provider.dart';
@@ -31,6 +32,11 @@ import 'widgets/server_connection_monitor.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  assert(() {
+    // Baseline guides are a Flutter Inspector aid, never application UI.
+    debugPaintBaselinesEnabled = false;
+    return true;
+  }());
   tz_data.initializeTimeZones();
   // Phase 1 targets Korean users only; skip a native-timezone-detection
   // plugin for this single, fixed zone (see event_details.dart for where a
@@ -290,15 +296,38 @@ class _CalendarHomeState extends State<CalendarHome>
     );
   }
 
+  Future<void> _showCalendarImportError(String message) {
+    return showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('캘린더 연동 실패'),
+        content: Text(message),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _connectCalendar(String provider) async {
     try {
       if (provider == 'apple' || provider == 'naver') {
         if (!await EventKit.requestAccess())
           throw AuthException('Apple 캘린더 접근을 허용해 주세요.');
+        final deviceCalendars = await EventKit.fetchCalendars();
+        final selectedCalendars = await _pickDeviceCalendars(deviceCalendars);
+        if (selectedCalendars == null || selectedCalendars.isEmpty) return;
         final (from, to) = _range;
         final native = await EventKit.fetchEvents(
           date_utils.parseDateKey(from),
           date_utils.parseDateKey(to),
+          calendarIds: selectedCalendars
+              .map((calendar) => calendar.id)
+              .toList(),
         );
         final imported = <String, List<CalendarEvent>>{};
         for (final event in native) {
@@ -333,14 +362,46 @@ class _CalendarHomeState extends State<CalendarHome>
       if (!mounted) return;
       await _pickAndImport(provider, calendars);
     } on AuthException catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
+      if (mounted) await _showCalendarImportError(error.message);
     } catch (_) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('캘린더 연결을 완료하지 못했습니다.')));
+      if (mounted) await _showCalendarImportError('캘린더 연결을 완료하지 못했습니다.');
     }
+  }
+
+  Future<List<DeviceCalendar>?> _pickDeviceCalendars(
+    List<DeviceCalendar> calendars,
+  ) {
+    final selected = <DeviceCalendar>{...calendars};
+    return Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push<List<DeviceCalendar>>(
+      CupertinoPageRoute(
+        fullscreenDialog: true,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => _ImportSelectionSheet(
+            title: '가져올 캘린더 (${selected.length}개)',
+            onCancel: () => Navigator.pop(dialogContext),
+            onImport: () => Navigator.pop(dialogContext, selected.toList()),
+            children: [
+              for (final calendar in calendars)
+                _CalendarImportChoice(
+                  title: calendar.title,
+                  subtitle: calendar.source.isEmpty ? null : calendar.source,
+                  selected: selected.contains(calendar),
+                  onTap: () => setDialogState(() {
+                    if (selected.contains(calendar)) {
+                      selected.remove(calendar);
+                    } else {
+                      selected.add(calendar);
+                    }
+                  }),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showCalendarConnections() async {
@@ -368,49 +429,131 @@ class _CalendarHomeState extends State<CalendarHome>
     List<ImportCalendar> calendars,
   ) async {
     final selected = <ImportCalendar>{...calendars};
-    final choices = await showDialog<List<ImportCalendar>>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('가져올 캘린더'),
-          content: SizedBox(
-            width: 360,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (final calendar in calendars)
-                  CheckboxListTile(
-                    value: selected.contains(calendar),
-                    title: Text(calendar.title),
-                    onChanged: (checked) => setDialogState(
-                      () => checked == true
-                          ? selected.add(calendar)
-                          : selected.remove(calendar),
-                    ),
-                  ),
-              ],
+    final choices = calendars.length == 1
+        ? calendars
+        : await Navigator.of(
+            context,
+            rootNavigator: true,
+          ).push<List<ImportCalendar>>(
+            CupertinoPageRoute(
+              fullscreenDialog: true,
+              builder: (dialogContext) => StatefulBuilder(
+                builder: (context, setDialogState) => _ImportSelectionSheet(
+                  title: '가져올 캘린더',
+                  onCancel: () => Navigator.pop(dialogContext),
+                  onImport: () =>
+                      Navigator.pop(dialogContext, selected.toList()),
+                  children: [
+                    for (final calendar in calendars)
+                      _CalendarImportChoice(
+                        title: calendar.title.split(' · ').first,
+                        selected: selected.contains(calendar),
+                        onTap: () => setDialogState(() {
+                          if (selected.contains(calendar)) {
+                            selected.remove(calendar);
+                          } else {
+                            selected.add(calendar);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
             ),
-          ),
+          );
+    if (choices == null || choices.isEmpty || !mounted) return;
+    final (from, to) = _range;
+    final imports = context.read<ImportedEvents>();
+    final options = <_ImportEventOption>[];
+    try {
+      for (final calendar in choices) {
+        final events = await AuthService.instance.importEvents(
+          provider,
+          calendar.id,
+          date_utils.parseDateKey(from),
+          date_utils.parseDateKey(to),
+        );
+        options.addAll(
+          events.map((event) => _ImportEventOption(calendar, event)),
+        );
+      }
+    } on AuthException catch (error) {
+      if (mounted) await _showCalendarImportError(error.message);
+      return;
+    }
+    if (options.isEmpty) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: const Text('가져올 일정이 없습니다'),
+          content: const Text('선택한 기간에 새로 가져올 일정이 없습니다.'),
           actions: [
-            TextButton(
+            CupertinoDialogAction(
+              isDefaultAction: true,
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, selected.toList()),
-              child: const Text('가져오기'),
+              child: const Text('확인'),
             ),
           ],
         ),
+      );
+      return;
+    }
+    final selectedEvents = await _pickEventsToImport(options);
+    if (selectedEvents == null || !mounted) return;
+    await imports.saveEventSelection(
+      provider,
+      options.map(
+        (option) =>
+            imports.eventKey(provider, option.calendar.id, option.event.id),
+      ),
+      selectedEvents.map(
+        (option) =>
+            imports.eventKey(provider, option.calendar.id, option.event.id),
       ),
     );
-    if (choices == null || choices.isEmpty || !mounted) return;
-    final (from, to) = _range;
-    await context.read<ImportedEvents>().refresh(
+    await imports.refresh(
       provider,
       choices,
       date_utils.parseDateKey(from),
       date_utils.parseDateKey(to),
+    );
+  }
+
+  Future<List<_ImportEventOption>?> _pickEventsToImport(
+    List<_ImportEventOption> options,
+  ) async {
+    final selected = <_ImportEventOption>{...options};
+    return Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push<List<_ImportEventOption>>(
+      CupertinoPageRoute(
+        fullscreenDialog: true,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => _ImportSelectionSheet(
+            title: '가져올 일정 (${selected.length}개)',
+            empty: options.isEmpty,
+            onCancel: () => Navigator.pop(dialogContext),
+            onImport: () => Navigator.pop(dialogContext, selected.toList()),
+            children: [
+              for (final option in options)
+                _CalendarImportChoice(
+                  title: option.event.title,
+                  subtitle: option.detail,
+                  selected: selected.contains(option),
+                  onTap: () => setDialogState(() {
+                    if (selected.contains(option)) {
+                      selected.remove(option);
+                    } else {
+                      selected.add(option);
+                    }
+                  }),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -777,6 +920,134 @@ class _CalendarHomeState extends State<CalendarHome>
   }
 }
 
+class _ImportEventOption {
+  const _ImportEventOption(this.calendar, this.event);
+
+  final ImportCalendar calendar;
+  final ImportedEvent event;
+
+  String get detail {
+    final time = event.time == null ? '종일' : event.time!;
+    final calendarTitle = calendar.title.split(' · ').first;
+    return '$calendarTitle · ${event.date} · $time';
+  }
+}
+
+class _ImportSelectionSheet extends StatelessWidget {
+  const _ImportSelectionSheet({
+    required this.title,
+    required this.children,
+    required this.onCancel,
+    required this.onImport,
+    this.empty = false,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final VoidCallback onCancel;
+  final VoidCallback onImport;
+  final bool empty;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(title),
+        leading: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: onCancel,
+          child: const Text('취소'),
+        ),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: onImport,
+          child: const Text('가져오기'),
+        ),
+      ),
+      child: SafeArea(
+        child: empty
+            ? const Center(child: Text('이 기간에 가져올 일정이 없습니다.'))
+            : ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                itemCount: children.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, index) => children[index],
+              ),
+      ),
+    );
+  }
+}
+
+class _CalendarImportChoice extends StatelessWidget {
+  const _CalendarImportChoice({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$title ${selected ? '선택됨' : '선택 안 됨'}',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CupertinoColors.label,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w500,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: CupertinoColors.secondaryLabel,
+                          fontSize: 13,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              CupertinoCheckbox(
+                value: selected,
+                onChanged: (_) => onTap(),
+                activeColor: CupertinoColors.activeBlue,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AccountDrawer extends StatelessWidget {
   final AppTheme theme;
   final AuthUser? user;
@@ -1050,6 +1321,11 @@ class _CalendarConnectionsSheet extends StatelessWidget {
             Text(
               '외부 일정은 이 앱에서 읽기 전용으로 표시됩니다.',
               style: TextStyle(color: theme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '로그인한 계정과 다른 계정의 캘린더도 연결할 수 있어요.',
+              style: TextStyle(color: theme.textMuted, fontSize: 12),
             ),
             const SizedBox(height: 24),
             _connectionSection('이 기기', [

@@ -9,9 +9,11 @@ import '../services/auth_service.dart';
 class ImportedEvents extends ChangeNotifier {
   static const _sourcesKey = 'calendar.import.sources.v1';
   static const _visibilityKey = 'calendar.import.visibility.v1';
+  static const _excludedEventsKey = 'calendar.import.excluded-events.v1';
   EventMap _events = const {};
   final Map<String, List<ImportCalendar>> _sources = {};
   final Map<String, bool> _visibility = {};
+  final Set<String> _excludedEvents = {};
   EventMap get events => {
     for (final entry in _events.entries)
       entry.key: entry.value
@@ -43,9 +45,34 @@ class ImportedEvents extends ChangeNotifier {
               .map((key, value) => MapEntry(key, value as bool)),
         );
       }
+      final excluded = (await SharedPreferences.getInstance()).getString(
+        _excludedEventsKey,
+      );
+      if (excluded != null) {
+        _excludedEvents.addAll(
+          (jsonDecode(excluded) as List).map((value) => value as String),
+        );
+      }
     } catch (_) {
       _sources.clear();
     }
+  }
+
+  String eventKey(String provider, String calendarId, String eventId) =>
+      '$provider|$calendarId|$eventId';
+
+  Future<void> saveEventSelection(
+    String provider,
+    Iterable<String> fetchedKeys,
+    Iterable<String> selectedKeys,
+  ) async {
+    final fetched = fetchedKeys.toSet();
+    _excludedEvents.removeAll(fetched);
+    _excludedEvents.addAll(fetched.difference(selectedKeys.toSet()));
+    await (await SharedPreferences.getInstance()).setString(
+      _excludedEventsKey,
+      jsonEncode(_excludedEvents.toList()),
+    );
   }
 
   bool isVisible(String provider, String calendarId) =>
@@ -99,6 +126,11 @@ class ImportedEvents extends ChangeNotifier {
         to,
       );
       for (final item in items) {
+        if (_excludedEvents.contains(
+          eventKey(provider, calendar.id, item.id),
+        )) {
+          continue;
+        }
         final event = CalendarEvent(
           id: 'import:$provider:${calendar.id}:${item.id}',
           date: item.date,

@@ -48,6 +48,8 @@ class EventKitChannel: NSObject, EKEventEditViewDelegate {
       deleteEvent(args, result: result)
     case "fetchEvents":
       fetchEvents(args, result: result)
+    case "fetchCalendars":
+      fetchCalendars(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -271,8 +273,25 @@ class EventKitChannel: NSObject, EKEventEditViewDelegate {
       result([])
       return
     }
-    let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+    let ids = args["calendarIds"] as? [String] ?? []
+    let calendars = ids.isEmpty ? nil : store.calendars(for: .event).filter { ids.contains($0.calendarIdentifier) }
+    let predicate = store.predicateForEvents(withStart: start, end: end, calendars: calendars)
     let events = store.events(matching: predicate)
     result(events.map { mapEvent($0) })
+  }
+
+  private func fetchCalendars(result: @escaping FlutterResult) {
+    guard hasCalendarAccess() else {
+      result([])
+      return
+    }
+    result(store.calendars(for: .event).map { calendar in
+      [
+        "id": calendar.calendarIdentifier,
+        "title": calendar.title,
+        "source": calendar.source.title,
+        "color": "#3B82F6"
+      ]
+    })
   }
 }

@@ -2,6 +2,17 @@ import 'package:flutter/services.dart';
 
 import '../models/calendar_event.dart';
 
+class DeviceCalendar {
+  const DeviceCalendar({
+    required this.id,
+    required this.title,
+    required this.source,
+  });
+  final String id;
+  final String title;
+  final String source;
+}
+
 /// Apple EventKit editor and synchronization platform channel.
 class EventKit {
   EventKit._();
@@ -91,16 +102,36 @@ class EventKit {
   /// ISO 8601 UTC strings) for two-way sync (lib/useSystemEvents.ios.ts).
   static Future<List<CalendarEvent>> fetchEvents(
     DateTime start,
-    DateTime end,
-  ) async {
+    DateTime end, {
+    List<String>? calendarIds,
+  }) async {
     try {
       final raw = await _channel.invokeMethod<List<dynamic>>('fetchEvents', {
         'start': start.toUtc().toIso8601String(),
         'end': end.toUtc().toIso8601String(),
+        if (calendarIds != null) 'calendarIds': calendarIds,
       });
       if (raw == null) return [];
       return raw
           .map((item) => _fromNative(Map<String, dynamic>.from(item as Map)))
+          .toList();
+    } on PlatformException {
+      return [];
+    }
+  }
+
+  static Future<List<DeviceCalendar>> fetchCalendars() async {
+    try {
+      final raw = await _channel.invokeMethod<List<dynamic>>('fetchCalendars');
+      return (raw ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .map(
+            (item) => DeviceCalendar(
+              id: item['id'] as String,
+              title: item['title'] as String,
+              source: item['source'] as String? ?? '',
+            ),
+          )
           .toList();
     } on PlatformException {
       return [];
