@@ -660,8 +660,24 @@ class _CalendarHomeState extends State<CalendarHome>
 
   Future<void> _openEdit(CalendarEvent event) async {
     if (event.id.startsWith('import:')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('가져온 일정은 읽기 전용입니다. 원본 캘린더에서 수정해 주세요.')),
+      final localDraft = CalendarEvent(
+        id: '',
+        date: event.date,
+        title: event.title,
+        location: event.location,
+        url: event.url,
+        description: event.description,
+        time: event.time,
+        duration: event.duration,
+        color: event.color,
+      );
+      await _openSheet(
+        draft: localDraft,
+        date: date_utils.parseDateKey(localDraft.date),
+        time: localDraft.time,
+        syncToSystem: false,
+        onBeforeSave: () =>
+            context.read<ImportedEvents>().hideImportedEvent(event),
       );
       return;
     }
@@ -686,6 +702,8 @@ class _CalendarHomeState extends State<CalendarHome>
     required CalendarEvent? draft,
     required DateTime date,
     String? time,
+    bool syncToSystem = true,
+    Future<void> Function()? onBeforeSave,
   }) async {
     final store = context.read<EventStore>();
     await showModalBottomSheet(
@@ -701,8 +719,9 @@ class _CalendarHomeState extends State<CalendarHome>
         initialDate: date,
         initialTime: time,
         onSave: (event) async {
+          await onBeforeSave?.call();
           final saved = await store.saveEvent(event);
-          await _syncToEventKit(store, saved);
+          if (syncToSystem) await _syncToEventKit(store, saved);
           if (context.mounted) Navigator.pop(context);
         },
         onDelete: (id, dateKey) async {

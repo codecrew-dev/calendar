@@ -87,9 +87,10 @@ class _TopBarState extends State<TopBar> {
                 onPressed: widget.onSearch,
                 color: theme.text,
               ),
-              _glassTextButton(
-                label: _viewLabel(widget.view),
-                onPressed: () => _showViewPicker(context),
+              _glassIconButton(
+                tooltip: '보기 방식: ${_viewLabel(widget.view)}',
+                icon: _viewIcon(widget.view),
+                onPressed: () => widget.onViewChanged(_nextView(widget.view)),
                 color: theme.text,
               ),
             ],
@@ -106,34 +107,19 @@ class _TopBarState extends State<TopBar> {
     ViewMode.month => '월간',
   };
 
-  Future<void> _showViewPicker(BuildContext context) =>
-      showCupertinoModalPopup<void>(
-        context: context,
-        builder: (sheetContext) => CupertinoActionSheet(
-          title: const Text('보기 방식'),
-          actions: [
-            for (final view in [
-              ViewMode.month,
-              ViewMode.list,
-              ViewMode.week,
-              ViewMode.day,
-            ])
-              CupertinoActionSheetAction(
-                isDefaultAction: widget.view == view,
-                onPressed: () {
-                  widget.onViewChanged(view);
-                  Navigator.pop(sheetContext);
-                },
-                child: Text(_viewLabel(view)),
-              ),
-          ],
-          cancelButton: CupertinoActionSheetAction(
-            isDestructiveAction: false,
-            onPressed: () => Navigator.pop(sheetContext),
-            child: const Text('취소'),
-          ),
-        ),
-      );
+  IconData _viewIcon(ViewMode view) => switch (view) {
+    ViewMode.month => CupertinoIcons.calendar,
+    ViewMode.list => CupertinoIcons.list_bullet,
+    ViewMode.week => CupertinoIcons.rectangle_grid_2x2,
+    ViewMode.day => CupertinoIcons.calendar_today,
+  };
+
+  ViewMode _nextView(ViewMode view) => switch (view) {
+    ViewMode.month => ViewMode.list,
+    ViewMode.list => ViewMode.week,
+    ViewMode.week => ViewMode.day,
+    ViewMode.day => ViewMode.month,
+  };
 
   Future<void> _showDatePicker(BuildContext context) async {
     var picked = widget.selectedDate;
@@ -219,20 +205,4 @@ class _TopBarState extends State<TopBar> {
       ),
     );
   }
-
-  Widget _glassTextButton({
-    required String label,
-    required VoidCallback onPressed,
-    required Color color,
-  }) => LiquidGlass(
-    useNative: false,
-    radius: 20,
-    child: SizedBox(
-      height: 40,
-      child: TextButton(
-        onPressed: onPressed,
-        child: Text(label, style: TextStyle(color: color, fontSize: 13)),
-      ),
-    ),
-  );
 }

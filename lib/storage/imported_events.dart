@@ -17,7 +17,11 @@ class ImportedEvents extends ChangeNotifier {
   EventMap get events => {
     for (final entry in _events.entries)
       entry.key: entry.value
-          .where((event) => _visibility[event.systemCalendarId] ?? true)
+          .where(
+            (event) =>
+                (_visibility[event.systemCalendarId] ?? true) &&
+                !_excludedEvents.contains('id:${event.id}'),
+          )
           .toList(),
   };
   Map<String, List<ImportCalendar>> get sources => _sources;
@@ -73,6 +77,15 @@ class ImportedEvents extends ChangeNotifier {
       _excludedEventsKey,
       jsonEncode(_excludedEvents.toList()),
     );
+  }
+
+  Future<void> hideImportedEvent(CalendarEvent event) async {
+    _excludedEvents.add('id:${event.id}');
+    await (await SharedPreferences.getInstance()).setString(
+      _excludedEventsKey,
+      jsonEncode(_excludedEvents.toList()),
+    );
+    notifyListeners();
   }
 
   bool isVisible(String provider, String calendarId) =>
