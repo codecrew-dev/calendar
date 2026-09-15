@@ -187,38 +187,62 @@ class _EventSheetState extends State<EventSheet> {
     var picked = initialDateTime;
     return showCupertinoModalPopup<DateTime>(
       context: context,
-      builder: (sheetContext) => CupertinoPageScaffold(
-        navigationBar: CupertinoNavigationBar(
-          middle: Text(switch (mode) {
-            CupertinoDatePickerMode.date => '날짜 선택',
-            CupertinoDatePickerMode.time => '시간 선택',
-            CupertinoDatePickerMode.dateAndTime => '시작 시간 선택',
-            _ => '시간 선택',
-          }),
-          leading: CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () => Navigator.of(sheetContext).pop(),
-            child: const Text('취소'),
+      builder: (sheetContext) => CupertinoPopupSurface(
+        blurSigma: 0,
+        isSurfacePainted: false,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: CupertinoColors.systemBackground.resolveFrom(sheetContext),
           ),
-          trailing: CupertinoButton(
-            padding: EdgeInsets.zero,
-            onPressed: () => Navigator.of(sheetContext).pop(picked),
-            child: const Text('완료'),
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: CupertinoDatePicker(
-            mode: mode,
-            initialDateTime: initialDateTime,
-            minimumDate: mode == CupertinoDatePickerMode.time
-                ? null
-                : DateTime(2000),
-            maximumDate: mode == CupertinoDatePickerMode.time
-                ? null
-                : DateTime(2100),
-            use24hFormat: MediaQuery.alwaysUse24HourFormatOf(context),
-            onDateTimeChanged: (value) => picked = value,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 270,
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 44,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          child: const Text('취소'),
+                        ),
+                        const SizedBox(width: 48),
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          onPressed: () =>
+                              Navigator.of(sheetContext).pop(picked),
+                          child: const Text('완료'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: CupertinoDatePicker(
+                      mode: mode,
+                      // CupertinoDatePicker is otherwise transparent. Give the
+                      // wheel its own opaque system surface so colors from the
+                      // calendar behind the sheet cannot bleed through its fade.
+                      backgroundColor: CupertinoColors.systemBackground
+                          .resolveFrom(sheetContext),
+                      initialDateTime: initialDateTime,
+                      minimumDate: mode == CupertinoDatePickerMode.time
+                          ? null
+                          : DateTime(2000),
+                      maximumDate: mode == CupertinoDatePickerMode.time
+                          ? null
+                          : DateTime(2100),
+                      use24hFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+                      onDateTimeChanged: (value) => picked = value,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
