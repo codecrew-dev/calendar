@@ -1,7 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'account_preferences.dart';
 
 import '../models/calendar_event.dart';
 import '../services/auth_service.dart';
@@ -11,6 +12,7 @@ class ImportedEvents extends ChangeNotifier {
   static const _visibilityKey = 'calendar.import.visibility.v1';
   static const _excludedEventsKey = 'calendar.import.excluded-events.v1';
   EventMap _events = const {};
+  int _accountGeneration = 0;
   final Map<String, List<ImportCalendar>> _sources = {};
   final Map<String, bool> _visibility = {};
   final Set<String> _excludedEvents = {};
@@ -27,7 +29,12 @@ class ImportedEvents extends ChangeNotifier {
   Map<String, List<ImportCalendar>> get sources => _sources;
 
   Future<void> load() async {
-    final raw = (await SharedPreferences.getInstance()).getString(_sourcesKey);
+    _accountGeneration++;
+    _sources.clear();
+    _visibility.clear();
+    _excludedEvents.clear();
+    _events = const {};
+    final raw = await AccountPreferences.instance.get(_sourcesKey) as String?;
     if (raw == null) return;
     try {
       final saved = Map<String, dynamic>.from(jsonDecode(raw) as Map);
@@ -40,21 +47,21 @@ class ImportedEvents extends ChangeNotifier {
             )
             .toList();
       }
-      final visibility = (await SharedPreferences.getInstance()).getString(
-        _visibilityKey,
-      );
+      final visibility = await AccountPreferences.instance.get(_visibilityKey);
       if (visibility != null) {
         _visibility.addAll(
-          Map<String, dynamic>.from(jsonDecode(visibility) as Map)
+          Map<String, dynamic>.from(jsonDecode(visibility as String) as Map)
               .map((key, value) => MapEntry(key, value as bool)),
         );
       }
-      final excluded = (await SharedPreferences.getInstance()).getString(
+      final excluded = await AccountPreferences.instance.get(
         _excludedEventsKey,
       );
       if (excluded != null) {
         _excludedEvents.addAll(
-          (jsonDecode(excluded) as List).map((value) => value as String),
+          (jsonDecode(excluded as String) as List).map(
+            (value) => value as String,
+          ),
         );
       }
     } catch (_) {
@@ -73,7 +80,7 @@ class ImportedEvents extends ChangeNotifier {
     final fetched = fetchedKeys.toSet();
     _excludedEvents.removeAll(fetched);
     _excludedEvents.addAll(fetched.difference(selectedKeys.toSet()));
-    await (await SharedPreferences.getInstance()).setString(
+    await AccountPreferences.instance.set(
       _excludedEventsKey,
       jsonEncode(_excludedEvents.toList()),
     );
@@ -81,7 +88,7 @@ class ImportedEvents extends ChangeNotifier {
 
   Future<void> hideImportedEvent(CalendarEvent event) async {
     _excludedEvents.add('id:${event.id}');
-    await (await SharedPreferences.getInstance()).setString(
+    await AccountPreferences.instance.set(
       _excludedEventsKey,
       jsonEncode(_excludedEvents.toList()),
     );
@@ -97,7 +104,7 @@ class ImportedEvents extends ChangeNotifier {
     bool visible,
   ) async {
     _visibility['$provider|$calendarId'] = visible;
-    await (await SharedPreferences.getInstance()).setString(
+    await AccountPreferences.instance.set(
       _visibilityKey,
       jsonEncode(_visibility),
     );
@@ -130,6 +137,7 @@ class ImportedEvents extends ChangeNotifier {
     DateTime from,
     DateTime to,
   ) async {
+    final generation = _accountGeneration;
     final next = <String, List<CalendarEvent>>{};
     for (final calendar in calendars) {
       final items = await AuthService.instance.importEvents(
@@ -157,6 +165,7 @@ class ImportedEvents extends ChangeNotifier {
         (next[event.date] ??= []).add(event);
       }
     }
+    if (generation != _accountGeneration) return;
     replaceProvider(provider, next);
     _sources[provider] = calendars;
     final encoded = jsonEncode({
@@ -170,9 +179,6 @@ class ImportedEvents extends ChangeNotifier {
             },
         ],
     });
-    await (await SharedPreferences.getInstance()).setString(
-      _sourcesKey,
-      encoded,
-    );
+    await AccountPreferences.instance.set(_sourcesKey, encoded);
   }
 }

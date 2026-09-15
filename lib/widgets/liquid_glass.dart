@@ -9,6 +9,16 @@ import 'package:flutter/services.dart';
 class LiquidGlass extends StatelessWidget {
   final Widget child;
   final double radius;
+
+  static bool _lastReduceTransparency = false;
+  static final Stream<bool> _reduceTransparency =
+      const EventChannel('calendar_app/glass_accessibility')
+          .receiveBroadcastStream()
+          .map((value) {
+            _lastReduceTransparency = value == true;
+            return _lastReduceTransparency;
+          });
+
   /// Platform views cannot reliably sit below Flutter modal routes on iOS.
   /// Set this to false for screens that can present an in-app alert.
   final bool useNative;
@@ -21,20 +31,36 @@ class LiquidGlass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ios = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    if (!ios) return _buildGlass(context, false);
+    return StreamBuilder<bool>(
+      stream: _reduceTransparency,
+      initialData: _lastReduceTransparency,
+      builder: (context, snapshot) =>
+          _buildGlass(context, snapshot.data ?? false),
+    );
+  }
+
+  Widget _buildGlass(BuildContext context, bool reduceTransparency) {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final highContrast = MediaQuery.highContrastOf(context);
-    final native = useNative && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final native =
+        useNative && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final opaque = highContrast || reduceTransparency;
+    final nativeGlass = native && !opaque;
     final shape = BorderRadius.circular(radius);
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: shape,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: dark ? 0.18 : 0.08),
-            blurRadius: 18,
-            offset: const Offset(0, 5),
-          ),
-        ],
+        boxShadow: nativeGlass || opaque
+            ? const []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: dark ? 0.18 : 0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, 5),
+                ),
+              ],
       ),
       child: ClipRRect(
         borderRadius: shape,
@@ -43,7 +69,7 @@ class LiquidGlass extends StatelessWidget {
             Positioned.fill(
               child: IgnorePointer(
                 child: ExcludeSemantics(
-                  child: native && !highContrast
+                  child: nativeGlass
                       ? UiKitView(
                           key: ValueKey('glass-$dark-$radius'),
                           viewType: 'calendar_app/liquid_glass',
@@ -51,10 +77,8 @@ class LiquidGlass extends StatelessWidget {
                           creationParamsCodec: const StandardMessageCodec(),
                         )
                       : BackdropFilter(
-                          filter: ImageFilter.blur(
-                            sigmaX: highContrast ? 0 : 20,
-                            sigmaY: highContrast ? 0 : 20,
-                          ),
+                          enabled: !opaque,
+                          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color:
@@ -62,7 +86,7 @@ class LiquidGlass extends StatelessWidget {
                                           ? const Color(0xFF252525)
                                           : Colors.white)
                                       .withValues(
-                                        alpha: highContrast
+                                        alpha: opaque
                                             ? 1
                                             : dark
                                             ? 0.76

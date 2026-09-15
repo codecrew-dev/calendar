@@ -1,0 +1,27 @@
+import ActivityKit
+import XCTest
+@testable import Runner
+
+final class LiveActivityTests: XCTestCase {
+  @MainActor
+  func testStartUpdateAndEnd() async throws {
+    guard #available(iOS 17.0, *) else { throw XCTSkip("Requires iOS 17") }
+    guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+      throw XCTSkip("Live Activities disabled on this device")
+    }
+    let id = "live-activity-test-\(UUID().uuidString)"
+    let start = Date().addingTimeInterval(-60)
+    let end = Date().addingTimeInterval(600)
+    let initial = CalendarActivityAttributes.ContentState(title: "실시간 활동 테스트", start: start, end: end)
+    let activity = try Activity.request(
+      attributes: CalendarActivityAttributes(eventID: id),
+      content: ActivityContent(state: initial, staleDate: end), pushType: nil)
+    XCTAssertEqual(activity.attributes.eventID, id)
+    XCTAssertEqual(activity.activityState, .active)
+    let changed = CalendarActivityAttributes.ContentState(title: "변경된 일정", start: start, end: end.addingTimeInterval(60))
+    await activity.update(ActivityContent(state: changed, staleDate: changed.end))
+    XCTAssertEqual(activity.content.state.title, "변경된 일정")
+    await activity.end(nil, dismissalPolicy: .immediate)
+    XCTAssertTrue(activity.activityState == .ended || activity.activityState == .dismissed)
+  }
+}

@@ -3,6 +3,7 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private let glassAccessibility = GlassAccessibilityStream()
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -11,10 +12,41 @@ import UIKit
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    FlutterEventChannel(name: "calendar_app/glass_accessibility",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger())
+      .setStreamHandler(glassAccessibility)
     engineBridge.applicationRegistrar.register(LiquidGlassFactory(), withId: "calendar_app/liquid_glass")
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     EventKitChannel.register(with: engineBridge.applicationRegistrar.messenger())
+    LiveActivityChannel.register(with: engineBridge.applicationRegistrar.messenger())
   }
+}
+
+/// Shares the system preference with Flutter-rendered glass surfaces too.
+final class GlassAccessibilityStream: NSObject, FlutterStreamHandler {
+  private var observer: NSObjectProtocol?
+
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    stopObserving()
+    observer = NotificationCenter.default.addObserver(
+      forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+      object: nil, queue: .main
+    ) { _ in events(UIAccessibility.isReduceTransparencyEnabled) }
+    events(UIAccessibility.isReduceTransparencyEnabled)
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    stopObserving()
+    return nil
+  }
+
+  private func stopObserving() {
+    if let observer { NotificationCenter.default.removeObserver(observer) }
+    observer = nil
+  }
+
+  deinit { stopObserving() }
 }
 
 /// UIKit owns the optical material; Flutter owns the accessible controls above it.
@@ -40,6 +72,8 @@ final class LiquidGlassPlatformView: NSObject, FlutterPlatformView {
     effectView.layer.cornerCurve = .continuous
     effectView.clipsToBounds = true
     effectView.isUserInteractionEnabled = false
+    effectView.isAccessibilityElement = false
+    effectView.accessibilityElementsHidden = true
     updateEffect()
     NotificationCenter.default.addObserver(self, selector: #selector(updateEffect),
       name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)

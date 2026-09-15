@@ -13,6 +13,7 @@ import 'logic/event_dedup.dart';
 import 'logic/recurrence.dart';
 import 'models/calendar_event.dart';
 import 'native/eventkit.dart';
+import 'native/live_activity.dart';
 import 'screens/event_sheet.dart';
 import 'screens/list_view.dart';
 import 'screens/login_screen.dart';
@@ -22,6 +23,7 @@ import 'screens/time_grid_view.dart';
 import 'services/auth_service.dart';
 import 'storage/event_store.dart';
 import 'storage/display_settings.dart';
+import 'storage/account_preferences.dart';
 import 'storage/imported_events.dart';
 import 'sync/system_events_sync.dart';
 import 'theme/app_theme.dart';
@@ -44,6 +46,7 @@ Future<void> main() async {
   final deviceZone = tz.getLocation('Asia/Seoul');
   final store = EventStore();
   final importedEvents = ImportedEvents();
+  await AccountPreferences.instance.selectAccount(null);
   await store.load();
   await importedEvents.load();
   await DisplaySettings.instance.load();
@@ -100,6 +103,7 @@ class _AuthGateState extends State<AuthGate> {
   AuthUser? _user;
   bool _guest = false;
   _AuthScreen _screen = _AuthScreen.login;
+  int _authGeneration = 0;
 
   @override
   void initState() {
@@ -108,7 +112,26 @@ class _AuthGateState extends State<AuthGate> {
     // must show the login screen and its connection alert immediately.
     _loading = false;
     AuthService.instance.restoreSession().then((user) {
-      if (mounted) setState(() => _user = user);
+      if (mounted && _authGeneration == 0 && user != null) {
+        _acceptUser(user);
+      }
+    });
+  }
+
+  Future<void> _acceptUser(AuthUser? user, {bool guest = false}) async {
+    final generation = ++_authGeneration;
+    setState(() => _loading = true);
+    final imports = context.read<ImportedEvents>();
+    await AccountPreferences.instance.selectAccount(user?.id);
+    await AccountPreferences.instance.sync();
+    await DisplaySettings.instance.load();
+    await imports.load();
+    if (!mounted || generation != _authGeneration) return;
+    setState(() {
+      _user = user;
+      _guest = guest;
+      _loading = false;
+      _screen = _AuthScreen.login;
     });
   }
 
@@ -132,27 +155,24 @@ class _AuthGateState extends State<AuthGate> {
       if (_screen == _AuthScreen.signup) {
         return SignupScreen(
           theme: theme,
-          onAuthenticated: (user) => setState(() => _user = user),
+          onAuthenticated: _acceptUser,
           onBack: () => setState(() => _screen = _AuthScreen.login),
         );
       }
       return LoginScreen(
         theme: theme,
-        onAuthenticated: (user) => setState(() => _user = user),
+        onAuthenticated: _acceptUser,
         onSignup: () => setState(() => _screen = _AuthScreen.signup),
-        onContinueAsGuest: () => setState(() => _guest = true),
+        onContinueAsGuest: () => _acceptUser(null, guest: true),
       );
     }
     return CalendarHome(
       deviceZone: widget.deviceZone,
       user: _user,
       onLogout: () async {
+        await LiveActivity.end();
         if (_user != null) await AuthService.instance.logout();
-        setState(() {
-          _user = null;
-          _guest = false;
-          _screen = _AuthScreen.login;
-        });
+        if (mounted) await _acceptUser(null);
       },
     );
   }
@@ -201,11 +221,150 @@ class _CalendarHomeState extends State<CalendarHome>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _sync = SystemEventsSync(context.read<EventStore>());
+    AccountPreferences.instance.syncSucceeded.addListener(
+      _showSettingsSyncStatus,
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _showSettingsSyncStatus(),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _runSync());
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _loadHolidays(_anchorDate.year),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshImported());
+  }
+
+  void _showSettingsSyncStatus() {
+    if (!mounted ||
+        widget.user == null ||
+        AccountPreferences.instance.syncSucceeded.value != false) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('설정은 이 기기에 저장됐습니다. 서버 연결 후 계정에 동기화됩니다.')),
+    );
+  }
+
+  Future<void> _restoreSettings() async {
+    final imports = context.read<ImportedEvents>();
+    if (!await AccountPreferences.instance.sync() || !mounted) return;
+    await DisplaySettings.instance.load();
+    await imports.load();
+    if (!mounted) return;
+    setState(() {
+      _showHolidays = DisplaySettings.instance.enabled(DisplaySetting.holidays);
+      _showLunar = DisplaySettings.instance.enabled(DisplaySetting.lunar);
+      _showSolarTerms = DisplaySettings.instance.enabled(
+        DisplaySetting.solarTerms,
+      );
+      _showAnniversaries = DisplaySettings.instance.enabled(
+        DisplaySetting.anniversaries,
+      );
+    });
+    await _refreshImported();
+  }
+
+  List<LiveCalendarEvent> _currentLiveEvents() => currentLiveEvents(
+    _combineEvents(
+      context.read<EventStore>().events,
+      context.read<ImportedEvents>().events,
+    ),
+    widget.deviceZone,
+    DateTime.now(),
+  );
+
+  Future<void> _showLiveActivities() async {
+    _scaffoldKey.currentState?.closeDrawer();
+    try {
+      final status = await LiveActivity.status();
+      if (!mounted) return;
+      if (!status.supported || !status.enabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              !status.supported
+                  ? 'iOS 17 이상에서 사용할 수 있습니다. 앱 업데이트 후 다시 실행해 주세요.'
+                  : '설정에서 일상 캘린더의 실시간 현황을 허용해 주세요.',
+            ),
+          ),
+        );
+        return;
+      }
+      final events = _currentLiveEvents();
+      final selected = await showCupertinoModalPopup<String>(
+        context: context,
+        builder: (context) => CupertinoActionSheet(
+          title: const Text('현재 일정 실시간 활동'),
+          message: Text(
+            events.isEmpty
+                ? '현재 진행 중인 시간 지정 일정이 없습니다. 종일 일정은 표시하지 않습니다.'
+                : '잠금 화면과 Dynamic Island에 일정 제목과 종료까지 남은 시간을 표시합니다.',
+          ),
+          actions: [
+            for (final event in events)
+              CupertinoActionSheetAction(
+                onPressed: () => Navigator.pop(context, event.id),
+                child: Text(
+                  '${event.event.title} · ${event.end.difference(DateTime.now()).inMinutes.clamp(0, 99999)}분 남음',
+                ),
+              ),
+            if (status.eventID != null)
+              CupertinoActionSheetAction(
+                isDestructiveAction: true,
+                onPressed: () => Navigator.pop(context, '__end__'),
+                child: const Text('실시간 활동 종료'),
+              ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+        ),
+      );
+      if (selected == null || !mounted) return;
+      if (selected == '__end__') {
+        await LiveActivity.end();
+      } else {
+        final matches = _currentLiveEvents().where(
+          (event) => event.id == selected,
+        );
+        if (matches.isEmpty) return;
+        await LiveActivity.start(matches.first);
+      }
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              selected == '__end__'
+                  ? '실시간 활동을 종료했습니다.'
+                  : '잠금 화면에 실시간 활동을 표시합니다.',
+            ),
+          ),
+        );
+    } on PlatformException catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? '실시간 활동을 처리하지 못했습니다.')),
+        );
+    }
+  }
+
+  Future<void> _refreshLiveActivity() async {
+    if (!mounted || !LiveActivity.isIOS) return;
+    try {
+      final status = await LiveActivity.status();
+      if (!mounted || status.eventID == null) return;
+      final matches = _currentLiveEvents().where(
+        (event) => event.id == status.eventID,
+      );
+      if (matches.isEmpty) {
+        await LiveActivity.end();
+      } else {
+        await LiveActivity.update(matches.first);
+      }
+    } on PlatformException {
+      /* Retry after the next foreground update. */
+    }
   }
 
   Future<void> _setDisplaySetting(
@@ -240,13 +399,20 @@ class _CalendarHomeState extends State<CalendarHome>
 
   @override
   void dispose() {
+    AccountPreferences.instance.syncSucceeded.removeListener(
+      _showSettingsSyncStatus,
+    );
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _runSync();
+    if (state == AppLifecycleState.resumed) {
+      _runSync();
+      _restoreSettings();
+      _refreshLiveActivity();
+    }
   }
 
   (String, String) get _range {
@@ -270,7 +436,8 @@ class _CalendarHomeState extends State<CalendarHome>
   Future<void> _refreshImported() async {
     final imports = context.read<ImportedEvents>();
     final (from, to) = _range;
-    for (final entry in imports.sources.entries) {
+    for (final entry in imports.sources.entries.toList()) {
+      if (!mounted) return;
       try {
         await imports.refresh(
           entry.key,
@@ -618,44 +785,7 @@ class _CalendarHomeState extends State<CalendarHome>
   bool _creatingEvent = false;
 
   Future<void> _openCreate(DateTime date, [String? time]) async {
-    if (!_sync.isSupported) {
-      await _openSheet(draft: null, date: date, time: time);
-      return;
-    }
-    if (_creatingEvent) return;
-    _creatingEvent = true;
-    try {
-      // Reading permission lets the app display the event saved by Apple UI.
-      await EventKit.requestAccess();
-      if (!mounted) return;
-      final result = await EventKit.presentEventEditor(date, time);
-      if (!mounted || !result.saved) return;
-      if (result.event != null) {
-        await context.read<EventStore>().saveEvent(result.event!);
-        if (!mounted) return;
-        setState(() {
-          _selectedKey = result.event!.date;
-          _anchorDate = date_utils.parseDateKey(_selectedKey);
-        });
-        await _runSync();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Apple 캘린더에 저장했습니다. 앱에 표시하려면 설정에서 캘린더 전체 접근을 허용해 주세요.',
-            ),
-          ),
-        );
-      }
-    } on PlatformException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'Apple 일정 추가 화면을 열 수 없습니다.')),
-        );
-      }
-    } finally {
-      _creatingEvent = false;
-    }
+    await _openSheet(draft: null, date: date, time: time);
   }
 
   Future<void> _openEdit(CalendarEvent event) async {
@@ -678,6 +808,10 @@ class _CalendarHomeState extends State<CalendarHome>
         syncToSystem: false,
         onBeforeSave: () =>
             context.read<ImportedEvents>().hideImportedEvent(event),
+        onDelete: () async {
+          await context.read<ImportedEvents>().hideImportedEvent(event);
+          await _refreshLiveActivity();
+        },
       );
       return;
     }
@@ -695,6 +829,13 @@ class _CalendarHomeState extends State<CalendarHome>
       draft: resolved,
       date: date_utils.parseDateKey(resolved.date),
       time: resolved.time,
+      onDelete: () async {
+        if (resolved.systemEventId != null) {
+          await EventKit.deleteEvent(resolved.systemEventId!);
+        }
+        await store.deleteEvent(resolved.date, resolved.id);
+        await _refreshLiveActivity();
+      },
     );
   }
 
@@ -704,9 +845,13 @@ class _CalendarHomeState extends State<CalendarHome>
     String? time,
     bool syncToSystem = true,
     Future<void> Function()? onBeforeSave,
+    Future<void> Function()? onDelete,
   }) async {
+    _collapseAgenda();
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     final store = context.read<EventStore>();
-    await showModalBottomSheet(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -722,19 +867,15 @@ class _CalendarHomeState extends State<CalendarHome>
           await onBeforeSave?.call();
           final saved = await store.saveEvent(event);
           if (syncToSystem) await _syncToEventKit(store, saved);
+          await _refreshLiveActivity();
           if (context.mounted) Navigator.pop(context);
         },
-        onDelete: (id, dateKey) async {
-          final existing = store.events[dateKey]?.firstWhere(
-            (e) => e.id == id,
-            orElse: () => draft!,
-          );
-          if (existing?.systemEventId != null) {
-            await EventKit.deleteEvent(existing!.systemEventId!);
-          }
-          await store.deleteEvent(dateKey, id);
-          if (context.mounted) Navigator.pop(context);
-        },
+        onDelete: onDelete == null
+            ? null
+            : () async {
+                await onDelete();
+                if (context.mounted) Navigator.pop(context);
+              },
       ),
     );
   }
@@ -804,6 +945,7 @@ class _CalendarHomeState extends State<CalendarHome>
         ),
         importedCount: imported.sources.length,
         onManageCalendars: _showCalendarConnections,
+        onLiveActivities: LiveActivity.isIOS ? _showLiveActivities : null,
         onLogout: widget.onLogout,
       ),
       body: SafeArea(
@@ -1083,6 +1225,7 @@ class _AccountDrawer extends StatelessWidget {
   final VoidCallback onLogout;
   final int importedCount;
   final VoidCallback onManageCalendars;
+  final VoidCallback? onLiveActivities;
   const _AccountDrawer({
     required this.theme,
     required this.user,
@@ -1097,6 +1240,7 @@ class _AccountDrawer extends StatelessWidget {
     required this.onLogout,
     required this.importedCount,
     required this.onManageCalendars,
+    this.onLiveActivities,
   });
 
   @override
@@ -1181,6 +1325,15 @@ class _AccountDrawer extends StatelessWidget {
                 subscription: true,
               ),
               const SizedBox(height: 28),
+              if (onLiveActivities != null) ...[
+                _sectionTitle('실시간 활동'),
+                _calendarConnect(
+                  '현재 일정 · 남은 시간',
+                  CupertinoIcons.timer,
+                  onLiveActivities!,
+                ),
+                const SizedBox(height: 20),
+              ],
               _sectionTitle('기능 표시'),
               const SizedBox(height: 10),
               _displayCheckbox(

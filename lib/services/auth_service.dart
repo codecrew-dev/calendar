@@ -269,6 +269,30 @@ class AuthService {
     return result.user;
   }
 
+  Future<Map<String, dynamic>> loadSettings(String userId) async {
+    final token = await _storage.read(key: _tokenKey);
+    if (token == null) throw AuthException('로그인이 필요합니다.');
+    return _request(
+      '/api/settings?user=${Uri.encodeQueryComponent(userId)}',
+      (json) => Map<String, dynamic>.from(json!['values'] as Map),
+      token: token,
+      timeout: const Duration(seconds: 5),
+    );
+  }
+
+  Future<void> saveSettings(String userId, Map<String, dynamic> values) async {
+    final token = await _storage.read(key: _tokenKey);
+    if (token == null) throw AuthException('로그인이 필요합니다.');
+    await _request(
+      '/api/settings?user=${Uri.encodeQueryComponent(userId)}',
+      (_) => null,
+      method: 'POST',
+      body: values,
+      token: token,
+      timeout: const Duration(seconds: 5),
+    );
+  }
+
   Future<String> calendarImportStart(String provider) async {
     final token = await _storage.read(key: _tokenKey);
     if (token == null) throw AuthException('로그인이 필요합니다.');

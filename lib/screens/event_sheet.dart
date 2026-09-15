@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 
 import '../logic/date_utils.dart' as date_utils;
 import '../models/calendar_event.dart';
@@ -15,7 +17,7 @@ class EventSheet extends StatefulWidget {
   final DateTime initialDate;
   final String? initialTime;
   final void Function(CalendarEvent event) onSave;
-  final void Function(String id, String date) onDelete;
+  final Future<void> Function()? onDelete;
 
   const EventSheet({
     super.key,
@@ -25,7 +27,7 @@ class EventSheet extends StatefulWidget {
     required this.initialDate,
     required this.initialTime,
     required this.onSave,
-    required this.onDelete,
+    this.onDelete,
   });
 
   @override
@@ -52,15 +54,26 @@ class _EventSheetState extends State<EventSheet> {
     _titleController = TextEditingController(text: draft?.title ?? '');
     _locationController = TextEditingController(text: draft?.location ?? '');
     _urlController = TextEditingController(text: draft?.url ?? '');
-    _descriptionController = TextEditingController(text: draft?.description ?? '');
-    _date = draft != null ? date_utils.parseDateKey(draft.date) : widget.initialDate;
+    _descriptionController = TextEditingController(
+      text: draft?.description ?? '',
+    );
+    _date = draft != null
+        ? date_utils.parseDateKey(draft.date)
+        : widget.initialDate;
     final time = draft?.time ?? widget.initialTime;
     _isAllDay = time == null;
-    _startTime = time != null ? TimeOfDay(hour: int.parse(time.split(':')[0]), minute: int.parse(time.split(':')[1])) : const TimeOfDay(hour: 9, minute: 0);
+    _startTime = time != null
+        ? TimeOfDay(
+            hour: int.parse(time.split(':')[0]),
+            minute: int.parse(time.split(':')[1]),
+          )
+        : const TimeOfDay(hour: 9, minute: 0);
     _durationMinutes = draft?.duration ?? 60;
     _color = draft?.color ?? colorToHex(palette[0].value);
     _frequency = draft?.recurrence?.frequency;
-    _until = draft?.recurrence?.until != null ? date_utils.parseDateKey(draft!.recurrence!.until!) : null;
+    _until = draft?.recurrence?.until != null
+        ? date_utils.parseDateKey(draft!.recurrence!.until!)
+        : null;
   }
 
   @override
@@ -72,36 +85,345 @@ class _EventSheetState extends State<EventSheet> {
     super.dispose();
   }
 
+  TimeOfDay get _endTime {
+    final totalStart = _startTime.hour * 60 + _startTime.minute;
+    final wrapped = (totalStart + _durationMinutes) % (24 * 60);
+    return TimeOfDay(hour: wrapped ~/ 60, minute: wrapped % 60);
+  }
+
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2000), lastDate: DateTime(2100));
+    if (_usesAppleDatePicker) {
+      final picked = await _showAppleDatePicker(
+        mode: CupertinoDatePickerMode.date,
+        initialDateTime: _date,
+      );
+      if (picked != null) {
+        setState(() => _date = DateTime(picked.year, picked.month, picked.day));
+      }
+      return;
+    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
     if (picked != null) setState(() => _date = picked);
   }
 
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(context: context, initialTime: _startTime);
-    if (picked != null) setState(() => _startTime = picked);
+  Future<void> _pickStartTime() async {
+    if (_usesAppleDatePicker) {
+      final picked = await _showAppleDatePicker(
+        mode: CupertinoDatePickerMode.time,
+        initialDateTime: _dateAt(_startTime),
+      );
+      if (picked != null) {
+        setState(() => _startTime = TimeOfDay.fromDateTime(picked));
+      }
+      return;
+    }
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _startTime,
+    );
+    if (picked == null) return;
+    setState(() => _startTime = picked);
   }
 
-  Future<void> _pickUntil() async {
-    final picked = await showDatePicker(context: context, initialDate: _until ?? _date, firstDate: _date, lastDate: DateTime(2100));
-    if (picked != null) setState(() => _until = picked);
+  Future<void> _pickStartDateTime() async {
+    if (_usesAppleDatePicker) {
+      final picked = await _showAppleDatePicker(
+        mode: CupertinoDatePickerMode.dateAndTime,
+        initialDateTime: _dateAt(_startTime),
+      );
+      if (picked != null) {
+        setState(() {
+          _date = DateTime(picked.year, picked.month, picked.day);
+          _startTime = TimeOfDay.fromDateTime(picked);
+        });
+      }
+      return;
+    }
+    await _pickDate();
+    if (!mounted) return;
+    await _pickStartTime();
+  }
+
+  Future<void> _pickEndTime() async {
+    if (_usesAppleDatePicker) {
+      final picked = await _showAppleDatePicker(
+        mode: CupertinoDatePickerMode.time,
+        initialDateTime: _dateAt(_endTime),
+      );
+      if (picked == null) return;
+      _setEndTime(TimeOfDay.fromDateTime(picked));
+      return;
+    }
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _endTime,
+    );
+    if (picked == null) return;
+    _setEndTime(picked);
+  }
+
+  bool get _usesAppleDatePicker =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  DateTime _dateAt(TimeOfDay time) =>
+      DateTime(_date.year, _date.month, _date.day, time.hour, time.minute);
+
+  void _setEndTime(TimeOfDay picked) {
+    final totalStart = _startTime.hour * 60 + _startTime.minute;
+    var totalEnd = picked.hour * 60 + picked.minute;
+    if (totalEnd <= totalStart) totalEnd += 24 * 60;
+    setState(() => _durationMinutes = totalEnd - totalStart);
+  }
+
+  Future<DateTime?> _showAppleDatePicker({
+    required CupertinoDatePickerMode mode,
+    required DateTime initialDateTime,
+  }) async {
+    var picked = initialDateTime;
+    return showCupertinoModalPopup<DateTime>(
+      context: context,
+      builder: (sheetContext) => CupertinoPageScaffold(
+        navigationBar: CupertinoNavigationBar(
+          middle: Text(switch (mode) {
+            CupertinoDatePickerMode.date => '날짜 선택',
+            CupertinoDatePickerMode.time => '시간 선택',
+            CupertinoDatePickerMode.dateAndTime => '시작 시간 선택',
+            _ => '시간 선택',
+          }),
+          leading: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => Navigator.of(sheetContext).pop(),
+            child: const Text('취소'),
+          ),
+          trailing: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => Navigator.of(sheetContext).pop(picked),
+            child: const Text('완료'),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: CupertinoDatePicker(
+            mode: mode,
+            initialDateTime: initialDateTime,
+            minimumDate: mode == CupertinoDatePickerMode.time
+                ? null
+                : DateTime(2000),
+            maximumDate: mode == CupertinoDatePickerMode.time
+                ? null
+                : DateTime(2100),
+            use24hFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+            onDateTimeChanged: (value) => picked = value,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickRepeat() async {
+    RepeatFrequency? tempFreq = _frequency;
+    DateTime? tempUntil = _until;
+    final theme = widget.theme;
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      backgroundColor: theme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '반복',
+                  style: TextStyle(
+                    color: theme.text,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _RepeatOptionTile(
+                  label: '안함',
+                  selected: tempFreq == null,
+                  onTap: () => setSheetState(() {
+                    tempFreq = null;
+                    tempUntil = null;
+                  }),
+                  theme: theme,
+                ),
+                for (final freq in RepeatFrequency.values)
+                  _RepeatOptionTile(
+                    label: _frequencyLabel(freq),
+                    selected: tempFreq == freq,
+                    onTap: () => setSheetState(() => tempFreq = freq),
+                    theme: theme,
+                  ),
+                if (tempFreq != null)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '반복 종료',
+                      style: TextStyle(color: theme.textSecondary),
+                    ),
+                    trailing: Text(
+                      tempUntil != null
+                          ? date_utils.toDateKey(tempUntil!)
+                          : '없음',
+                      style: TextStyle(color: theme.text),
+                    ),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: sheetContext,
+                        initialDate: tempUntil ?? _date,
+                        firstDate: _date,
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) {
+                        setSheetState(() => tempUntil = picked);
+                      }
+                    },
+                  ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => Navigator.pop(sheetContext, {
+                    'freq': tempFreq,
+                    'until': tempUntil,
+                  }),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: const Text('완료'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        _frequency = result['freq'] as RepeatFrequency?;
+        _until = result['until'] as DateTime?;
+      });
+    }
+  }
+
+  Future<void> _pickColor() async {
+    final theme = widget.theme;
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: theme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '색상',
+                style: TextStyle(
+                  color: theme.text,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: [
+                  for (final entry in palette)
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.pop(sheetContext, colorToHex(entry.value)),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: entry.value,
+                          shape: BoxShape.circle,
+                          border:
+                              _color.toUpperCase() == colorToHex(entry.value)
+                              ? Border.all(color: theme.text, width: 2)
+                              : null,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (result != null) setState(() => _color = result);
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('일정 삭제'),
+        content: const Text('이 일정을 삭제하시겠어요?'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.onDelete?.call();
   }
 
   void _save() {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
-    final timeString = _isAllDay ? null : '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}';
+    final timeString = _isAllDay
+        ? null
+        : '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}';
     final event = CalendarEvent(
       id: widget.draft?.id ?? '',
       date: date_utils.toDateKey(_date),
       title: title,
-      location: _locationController.text.trim().isEmpty ? null : _locationController.text.trim(),
-      url: _urlController.text.trim().isEmpty ? null : _urlController.text.trim(),
-      description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+      location: _locationController.text.trim().isEmpty
+          ? null
+          : _locationController.text.trim(),
+      url: _urlController.text.trim().isEmpty
+          ? null
+          : _urlController.text.trim(),
+      description: _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim(),
       time: timeString,
       duration: _isAllDay ? 24 * 60 : _durationMinutes,
       color: _color,
-      recurrence: _frequency != null ? EventRecurrence(frequency: _frequency!, until: _until != null ? date_utils.toDateKey(_until!) : null) : null,
+      recurrence: _frequency != null
+          ? EventRecurrence(
+              frequency: _frequency!,
+              until: _until != null ? date_utils.toDateKey(_until!) : null,
+            )
+          : null,
       systemEventId: widget.draft?.systemEventId,
       systemCalendarId: widget.draft?.systemCalendarId,
       uid: widget.draft?.uid,
@@ -110,137 +432,322 @@ class _EventSheetState extends State<EventSheet> {
     widget.onSave(event);
   }
 
+  String _shortDateLabel(DateTime d) =>
+      '${(d.year % 100).toString().padLeft(2, '0')}. ${d.month}. ${d.day}. '
+      '(${date_utils.weekdays[d.weekday % 7]})';
+
+  Widget _tappable({required Widget child, required VoidCallback onTap}) {
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: child,
+      ),
+    );
+  }
+
+  Widget _rowDivider() {
+    return Divider(height: 1, thickness: 1, color: widget.theme.border);
+  }
+
+  Widget _iconRow({
+    required IconData icon,
+    required String label,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    final theme = widget.theme;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon, color: theme.textSecondary, size: 22),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: theme.text, fontSize: 15),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+    return onTap != null ? _tappable(onTap: onTap, child: content) : content;
+  }
+
+  Widget _iconFieldRow({
+    required IconData icon,
+    required TextEditingController controller,
+    required String hint,
+    int minLines = 1,
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
+    final theme = widget.theme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Icon(icon, color: theme.textSecondary, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              minLines: minLines,
+              maxLines: maxLines,
+              keyboardType: keyboardType,
+              style: TextStyle(color: theme.text, fontSize: 15),
+              decoration: InputDecoration(
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                hintText: hint,
+                hintStyle: TextStyle(color: theme.textMuted, fontSize: 15),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateTimeSection(AppTheme theme) {
+    if (_isAllDay) {
+      return _tappable(
+        onTap: _pickDate,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              const SizedBox(width: 36),
+              Text(
+                '날짜',
+                style: TextStyle(color: theme.textSecondary, fontSize: 13),
+              ),
+              const Spacer(),
+              Text(
+                _shortDateLabel(_date),
+                style: TextStyle(
+                  color: theme.text,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        const SizedBox(width: 36),
+        Expanded(
+          child: _tappable(
+            onTap: _pickStartDateTime,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _shortDateLabel(_date),
+                    style: TextStyle(color: theme.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _startTime.format(context),
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Icon(Icons.chevron_right, color: theme.textMuted),
+        Expanded(
+          child: _tappable(
+            onTap: _pickEndTime,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _shortDateLabel(_date),
+                    style: TextStyle(color: theme.textSecondary, fontSize: 13),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _endTime.format(context),
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
-        decoration: BoxDecoration(color: theme.surface, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
+        decoration: BoxDecoration(
+          color: theme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(widget.isEditing ? '일정 수정' : '새 일정', style: TextStyle(color: theme.text, fontSize: 17, fontWeight: FontWeight.w700)),
-                  if (widget.isEditing && widget.draft != null)
-                    IconButton(
-                      icon: Icon(Icons.delete_outline, color: theme.danger),
-                      onPressed: () => widget.onDelete(widget.draft!.id, widget.draft!.date),
+                  IconButton(
+                    icon: Icon(Icons.close, color: theme.text, size: 28),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '일정',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontSize: 21,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                  ),
+                  if (widget.isEditing && widget.onDelete != null)
+                    IconButton(
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: CupertinoColors.destructiveRed,
+                        size: 26,
+                      ),
+                      onPressed: _confirmDelete,
+                    ),
+                  IconButton(
+                    icon: Icon(Icons.check, color: theme.text, size: 28),
+                    onPressed: _save,
+                  ),
                 ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _titleController,
-                autofocus: !widget.isEditing,
-                style: TextStyle(color: theme.text),
-                decoration: InputDecoration(hintText: '제목', hintStyle: TextStyle(color: theme.textMuted)),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _locationController,
-                style: TextStyle(color: theme.text),
-                decoration: InputDecoration(hintText: '위치', hintStyle: TextStyle(color: theme.textMuted)),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('종일', style: TextStyle(color: theme.text)),
-                value: _isAllDay,
-                onChanged: (value) => setState(() => _isAllDay = value),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text('날짜', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-                trailing: Text(date_utils.toDateKey(_date), style: TextStyle(color: theme.text)),
-                onTap: _pickDate,
-              ),
-              if (!_isAllDay) ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('시작 시간', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-                  trailing: Text(_startTime.format(context), style: TextStyle(color: theme.text)),
-                  onTap: _pickTime,
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('길이', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-                  trailing: Text(date_utils.formatDurationLabel(_durationMinutes), style: TextStyle(color: theme.text)),
-                  onTap: () async {
-                    final options = [15, 30, 60, 90, 120, 180];
-                    final picked = await showModalBottomSheet<int>(
-                      context: context,
-                      builder: (context) => ListView(
-                        shrinkWrap: true,
-                        children: [for (final m in options) ListTile(title: Text(date_utils.formatDurationLabel(m)), onTap: () => Navigator.pop(context, m))],
-                      ),
-                    );
-                    if (picked != null) setState(() => _durationMinutes = picked);
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-              Text('색상', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 10,
+              const SizedBox(height: 18),
+              Row(
                 children: [
-                  for (final entry in palette)
-                    GestureDetector(
-                      onTap: () => setState(() => _color = colorToHex(entry.value)),
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: entry.value,
-                          shape: BoxShape.circle,
-                          border: _color.toUpperCase() == colorToHex(entry.value) ? Border.all(color: theme.text, width: 2) : null,
+                  GestureDetector(
+                    onTap: _pickColor,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: colorFromHex(_color),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: TextField(
+                      controller: _titleController,
+                      autofocus: !widget.isEditing,
+                      style: TextStyle(color: theme.text, fontSize: 20),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        hintText: '일정을 입력하세요.',
+                        hintStyle: TextStyle(color: theme.textMuted),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 28),
+              _iconRow(
+                icon: Icons.access_time_rounded,
+                label: '종일',
+                trailing: Switch(
+                  value: _isAllDay,
+                  onChanged: (value) => setState(() => _isAllDay = value),
+                ),
+              ),
+              _dateTimeSection(theme),
+              _rowDivider(),
+              _iconRow(
+                icon: Icons.repeat,
+                label: '반복',
+                onTap: _pickRepeat,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_frequency != null)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Text(
+                          _frequencyLabel(_frequency!),
+                          style: TextStyle(color: theme.textSecondary),
                         ),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text('반복', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _RepeatChip(label: '안함', selected: _frequency == null, onTap: () => setState(() { _frequency = null; _until = null; }), theme: theme),
-                  for (final freq in RepeatFrequency.values)
-                    _RepeatChip(label: _frequencyLabel(freq), selected: _frequency == freq, onTap: () => setState(() => _frequency = freq), theme: theme),
-                ],
-              ),
-              if (_frequency != null)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('반복 종료', style: TextStyle(color: theme.textSecondary, fontSize: 13)),
-                  trailing: Text(_until != null ? date_utils.toDateKey(_until!) : '없음', style: TextStyle(color: theme.text)),
-                  onTap: _pickUntil,
+                    Icon(Icons.chevron_right, color: theme.textMuted),
+                  ],
                 ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _urlController,
-                keyboardType: TextInputType.url,
-                style: TextStyle(color: theme.text),
-                decoration: InputDecoration(hintText: 'URL', hintStyle: TextStyle(color: theme.textMuted)),
               ),
-              const SizedBox(height: 8),
-              TextField(
+              _rowDivider(),
+              _iconFieldRow(
+                icon: Icons.location_on_outlined,
+                controller: _locationController,
+                hint: '장소',
+              ),
+              _rowDivider(),
+              _iconFieldRow(
+                icon: Icons.notes,
                 controller: _descriptionController,
+                hint: '설명',
                 minLines: 2,
                 maxLines: 4,
-                style: TextStyle(color: theme.text),
-                decoration: InputDecoration(hintText: '메모', hintStyle: TextStyle(color: theme.textMuted)),
+              ),
+              _rowDivider(),
+              _iconFieldRow(
+                icon: Icons.link,
+                controller: _urlController,
+                hint: 'URL',
+                keyboardType: TextInputType.url,
+              ),
+              _rowDivider(),
+              _iconRow(
+                icon: Icons.palette_outlined,
+                label: '색상',
+                onTap: _pickColor,
+                trailing: Icon(Icons.chevron_right, color: theme.textMuted),
               ),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: _save,
-                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
                 child: const Text('저장'),
               ),
             ],
@@ -266,21 +773,39 @@ class _EventSheetState extends State<EventSheet> {
   }
 }
 
-class _RepeatChip extends StatelessWidget {
+class _RepeatOptionTile extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final AppTheme theme;
-  const _RepeatChip({required this.label, required this.selected, required this.onTap, required this.theme});
+  const _RepeatOptionTile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.theme,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ChoiceChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) => onTap(),
-      selectedColor: theme.accent.withValues(alpha: 0.2),
-      labelStyle: TextStyle(color: selected ? theme.accent : theme.text),
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(color: theme.text, fontSize: 15),
+                ),
+              ),
+              if (selected) Icon(Icons.check, color: theme.accent, size: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

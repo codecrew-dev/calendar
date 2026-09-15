@@ -45,11 +45,17 @@ class _TopBarState extends State<TopBar> {
         children: [
           Row(
             children: [
-              _glassIconButton(
-                tooltip: '캘린더 메뉴',
-                icon: Icons.menu,
-                onPressed: widget.onMenu,
-                color: theme.text,
+              SizedBox(
+                width: 88,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _glassIconButton(
+                    tooltip: '캘린더 메뉴',
+                    icon: Icons.menu,
+                    onPressed: widget.onMenu,
+                    color: theme.text,
+                  ),
+                ),
               ),
               Expanded(
                 child: Semantics(
@@ -69,29 +75,32 @@ class _TopBarState extends State<TopBar> {
                             letterSpacing: -0.3,
                           ),
                         ),
-                        Text(
-                          '전체 일정',
-                          style: TextStyle(
-                            color: theme.textMuted,
-                            fontSize: 11,
-                          ),
-                        ),
                       ],
                     ),
                   ),
                 ),
               ),
-              _glassIconButton(
-                tooltip: '일정 검색',
-                icon: Icons.search,
-                onPressed: widget.onSearch,
-                color: theme.text,
-              ),
-              _glassIconButton(
-                tooltip: '보기 방식: ${_viewLabel(widget.view)}',
-                icon: _viewIcon(widget.view),
-                onPressed: () => widget.onViewChanged(_nextView(widget.view)),
-                color: theme.text,
+              LiquidGlass(
+                useNative: false,
+                radius: 22,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _actionButton(
+                      tooltip: '일정 검색',
+                      icon: Icons.search,
+                      onPressed: widget.onSearch,
+                      color: theme.text,
+                    ),
+                    _actionButton(
+                      tooltip: '보기 방식: ${_viewLabel(widget.view)}',
+                      icon: _viewIcon(widget.view),
+                      onPressed: () =>
+                          widget.onViewChanged(_nextView(widget.view)),
+                      color: theme.text,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -202,6 +211,23 @@ class _TopBarState extends State<TopBar> {
           onPressed: onPressed,
           icon: Icon(icon, size: 20, color: color),
         ),
+      ),
+    );
+  }
+
+  Widget _actionButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+    required Color color,
+  }) {
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, size: 20, color: color),
       ),
     );
   }
