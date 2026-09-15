@@ -569,64 +569,53 @@ class _EventSheetState extends State<EventSheet> {
         ),
       );
     }
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Stack(
       children: [
-        const SizedBox(width: 36),
-        Expanded(
-          child: _tappable(
-            onTap: _pickStartDateTime,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _shortDateLabel(_date),
-                    style: TextStyle(color: theme.textSecondary, fontSize: 13),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _startTime.format(context),
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        Row(
+          children: [
+            const SizedBox(width: 36),
+            Expanded(child: _timeBlock(_pickStartDateTime, _startTime, theme)),
+            Expanded(child: _timeBlock(_pickEndTime, _endTime, theme)),
+          ],
         ),
-        Icon(Icons.chevron_right, color: theme.textMuted),
-        Expanded(
-          child: _tappable(
-            onTap: _pickEndTime,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _shortDateLabel(_date),
-                    style: TextStyle(color: theme.textSecondary, fontSize: 13),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _endTime.format(context),
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Align(
+              // The separator belongs between the two time values, not in the
+              // centre of the start/end columns (which include their dates).
+              alignment: const Alignment(0, 0.38),
+              child: Icon(Icons.chevron_right, color: theme.textMuted),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _timeBlock(VoidCallback onTap, TimeOfDay time, AppTheme theme) {
+    return _tappable(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _shortDateLabel(_date),
+              style: TextStyle(color: theme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              time.format(context),
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
